@@ -384,6 +384,7 @@
     false,
   );
   let filterByLabel = chooseWritableStore(source.state?.filterByLabel, mailboxView?.filterByLabel, []);
+  let starredOnly = chooseWritableStore(source.state?.starredOnly, mailboxView?.starredOnly, false);
   let threadingEnabled = chooseWritableStore(source.state?.threadingEnabled, mailboxView?.threadingEnabled, true);
   let messagesStore = storeToWritableStore(source.state?.messages, []);
   let searchActiveStore = storeToStore(source.state?.searchActive, false);
@@ -4540,7 +4541,7 @@ const stopVerticalResize = () => {
       class:mobile-reader-active={$mobileReader}
       bind:this={messagesPaneEl}
     >
-      {#if $filteredConversations.length || $filteredMessages.length}
+      {#if $filteredConversations.length || $filteredMessages.length || $unreadOnly || $hasAttachmentsOnly || $starredOnly || ($filterByLabel && $filterByLabel.length)}
       <div class="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30 relative z-40 overflow-visible">
         <div class="flex items-center gap-1 overflow-visible">
           {#if !outboxSelected && ($filteredConversations.length || $filteredMessages.length)}
@@ -4718,11 +4719,8 @@ const stopVerticalResize = () => {
                   onclick={() => {
                     setUnreadOnly(false);
                     setHasAttachmentsOnly(false);
-                    if (source.state?.filterByLabel?.set) {
-                      mailboxStore.state.filterByLabel.set([]);
-                    } else if (mailboxView?.filterByLabel?.set) {
-                      mailboxView.filterByLabel.set([]);
-                    }
+                    starredOnly.set(false);
+                    filterByLabel.set([]);
                     closeFilters();
                   }}
                 >
@@ -5170,6 +5168,20 @@ const stopVerticalResize = () => {
                 </svg>
                 <h3>No results found</h3>
                 <p>Try adjusting your search or filters</p>
+                {#if $unreadOnly || $hasAttachmentsOnly || $starredOnly || ($filterByLabel && $filterByLabel.length)}
+                  <button
+                    type="button"
+                    class="mt-4 px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-accent hover:text-accent-foreground transition-colors"
+                    onclick={() => {
+                      setUnreadOnly(false);
+                      setHasAttachmentsOnly(false);
+                      starredOnly.set(false);
+                      filterByLabel.set([]);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                {/if}
               {:else if $selectedFolder === 'INBOX'}
                 <svg class="h-12 w-12 text-muted-foreground mb-4" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" stroke="currentColor" fill="none" stroke-width="2"/>

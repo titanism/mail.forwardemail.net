@@ -290,6 +290,18 @@ const createMailboxStore = () => {
   };
 
   const selectFolder = (path) => {
+    // Re-selecting the same folder clears active filters so the user isn't stuck
+    const reselecting = get(selectedFolder) === path;
+    if (reselecting) {
+      query.set('');
+      unreadOnly.set(false);
+      hasAttachmentsOnly.set(false);
+      starredOnly.set(false);
+      filterByLabel.set([]);
+      searchActive.set(false);
+      searchResults.set([]);
+    }
+
     selectedFolder.set(path);
     page.set(1);
     selectedConversationIds.set([]);
