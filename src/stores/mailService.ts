@@ -806,7 +806,8 @@ export const mailService = {
       const mappedAttachments = (detailAttachments || []).map((att: unknown) => {
         const a = att as Record<string, unknown>;
         const contentId = a.cid || a.contentId;
-        const isInline = !!contentId;
+        const disposition = (a.disposition || a.contentDisposition || '').toString().toLowerCase();
+        const isInline = disposition === 'inline' || !!contentId;
         const hasUrl = !!a.url;
 
         let href: string | undefined;
@@ -819,7 +820,10 @@ export const mailService = {
         return {
           name: (a.name || a.filename) as string,
           filename: a.filename as string,
-          size: a.size as number,
+          size: (a.size ||
+            (a.content as ArrayBuffer)?.byteLength ||
+            (a.content as Uint8Array)?.length ||
+            0) as number,
           contentId: contentId as string,
           href,
           contentType: (a.contentType || a.mimeType || a.type) as string,
@@ -885,8 +889,12 @@ export const mailService = {
         debugLog('[MIME] Parsing via worker');
         abortIfNeeded(compositeSignal);
         const parseStart = shouldMeasure ? now() : 0;
+        const rawMime =
+          result?.raw && typeof result.raw === 'string' && !isPgp
+            ? (result.raw as string)
+            : (rawBody as string);
         const parseResult = await requestParsing({
-          raw: rawBody as string,
+          raw: rawMime,
           existingAttachments: attachments,
         });
         const parsed = parseResult.success ? parseResult : null;
@@ -1070,7 +1078,8 @@ export const mailService = {
       const mappedAttachments = (detailAttachments || []).map((att: unknown) => {
         const a = att as Record<string, unknown>;
         const contentId = a.cid || a.contentId;
-        const isInline = !!contentId;
+        const disposition = (a.disposition || a.contentDisposition || '').toString().toLowerCase();
+        const isInline = disposition === 'inline' || !!contentId;
         const hasUrl = !!a.url;
 
         let href: string | undefined;
@@ -1083,7 +1092,10 @@ export const mailService = {
         return {
           name: (a.name || a.filename) as string,
           filename: a.filename as string,
-          size: a.size as number,
+          size: (a.size ||
+            (a.content as ArrayBuffer)?.byteLength ||
+            (a.content as Uint8Array)?.length ||
+            0) as number,
           contentId: contentId as string,
           href,
           contentType: (a.contentType || a.mimeType || a.type) as string,
@@ -1461,14 +1473,27 @@ function createPgpModal({
   return cleanup;
 }
 
+function generateAttachmentName(att: Record<string, unknown>): string {
+  const contentType = (att.contentType || att.mimeType || att.type || '') as string;
+  const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
+  const cid = (att.contentId || att.cid || '') as string;
+  if (cid) {
+    const cleaned = cid.replace(/^<|>$/g, '').split('@')[0];
+    if (cleaned) return `${cleaned}.${ext}`;
+  }
+  return `attachment.${ext}`;
+}
+
 function sanitizeAttachments(list: unknown[]): Attachment[] {
   if (!Array.isArray(list)) return [];
   return list
     .map((att: unknown) => {
       const a = att as Record<string, unknown>;
+      const name = (a.name || a.filename) as string;
+      const fallbackName = name || generateAttachmentName(a);
       return {
-        name: (a.name || a.filename) as string,
-        filename: (a.filename || a.name) as string,
+        name: fallbackName,
+        filename: (a.filename || a.name || fallbackName) as string,
         size: (a.size || 0) as number,
         contentId: (a.contentId || a.cid) as string | undefined,
         href:

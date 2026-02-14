@@ -540,7 +540,8 @@ async function parseRawMessage(raw, existingAttachments = []) {
       })) || [];
 
     // Merge with existing attachments and filter out PGP-related files
-    const merged = [...existingAttachments, ...attachments].filter((att) => {
+    // PostalMime attachments come first so they win deduplication (they have data URL hrefs)
+    const merged = [...attachments, ...existingAttachments].filter((att) => {
       const filename = (att.filename || att.name || '').toLowerCase();
       const contentType = (att.contentType || '').toLowerCase();
 
@@ -554,17 +555,27 @@ async function parseRawMessage(raw, existingAttachments = []) {
       return true;
     });
 
+    // Deduplicate by CID or filename+size
+    const seen = new Set();
+    const deduped = merged.filter((att) => {
+      const cid = (att.contentId || '').replace(/^<|>$/g, '');
+      const key = cid ? `cid:${cid}` : `file:${att.filename || att.name || ''}:${att.size || 0}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     // Use HTML if available, otherwise wrap text in <pre>
     const body =
       email.html || (email.text ? `<pre style="white-space:pre-wrap">${email.text}</pre>` : raw);
 
     // Apply inline attachments (cid: → data:)
-    const inlined = applyInlineAttachments(body, merged);
+    const inlined = applyInlineAttachments(body, deduped);
 
     return {
       body: inlined, // Has data URLs embedded - safe to cache!
       rawBody: body,
-      attachments: merged,
+      attachments: deduped,
       textContent: email.text || extractTextContent(body),
     };
   } catch (error) {
@@ -712,7 +723,10 @@ async function fetchAndCacheBodyWithOptions(account, folder, msg, options = {}) 
       const detailAttachments = result?.nodemailer?.attachments || result?.attachments || [];
       attachments = (detailAttachments || []).map((att) => {
         const contentId = att.cid || att.contentId;
-        const isInline = !!contentId;
+        const disposition = (att.disposition || att.contentDisposition || '')
+          .toString()
+          .toLowerCase();
+        const isInline = disposition === 'inline' || !!contentId;
         const hasUrl = !!att.url;
 
         let href;
@@ -725,7 +739,7 @@ async function fetchAndCacheBodyWithOptions(account, folder, msg, options = {}) 
         return {
           name: att.name || att.filename,
           filename: att.filename || att.name,
-          size: att.size,
+          size: att.size || att.content?.byteLength || att.content?.length || 0,
           contentId,
           href,
           contentType: att.contentType || att.mimeType || att.type,
