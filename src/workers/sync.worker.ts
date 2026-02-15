@@ -519,6 +519,54 @@ async function fetchAndCacheBody(account, folder, msg, options = {}) {
   return fetchAndCacheBodyWithOptions(account, folder, msg, options);
 }
 
+async function extractNestedAttachments(att) {
+  try {
+    if (!att.content || (!att.content.byteLength && typeof att.content !== 'string')) return [];
+    const nestedParser = new PostalMime();
+    const raw =
+      typeof att.content === 'string' ? att.content : new TextDecoder().decode(att.content);
+    const nested = await nestedParser.parse(raw);
+    const results = [];
+    for (const child of nested.attachments || []) {
+      if ((child.mimeType || '').toLowerCase() === 'message/rfc822' && child.content) {
+        // Recurse into nested message/rfc822
+        const deeper = await extractNestedAttachments(child);
+        results.push(...deeper);
+        const childSubject = '(attached email)';
+        const childName = child.filename || `${childSubject}.eml`;
+        results.push({
+          name: childName,
+          filename: childName,
+          size: child.size || child.content?.length || 0,
+          contentId: child.contentId || undefined,
+          disposition: 'attachment',
+          href: bufferToDataUrl({
+            content: child.content,
+            contentType: 'message/rfc822',
+          }),
+          contentType: 'message/rfc822',
+        });
+      } else {
+        results.push({
+          name: child.filename || 'attachment',
+          filename: child.filename || 'attachment',
+          size: child.size || child.content?.length || 0,
+          contentId: child.contentId || undefined,
+          disposition: (child.disposition || '').toLowerCase(),
+          href: bufferToDataUrl({
+            content: child.content,
+            contentType: child.mimeType || child.contentType || 'application/octet-stream',
+          }),
+          contentType: child.mimeType || child.contentType || 'application/octet-stream',
+        });
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 async function parseRawMessage(raw, existingAttachments = []) {
   if (!raw) return null;
   try {
@@ -526,18 +574,42 @@ async function parseRawMessage(raw, existingAttachments = []) {
     const email = await parser.parse(raw);
 
     // Convert postal-mime attachments to data URLs
-    const attachments =
-      (email.attachments || []).map((att) => ({
-        name: att.filename || 'attachment',
-        filename: att.filename || 'attachment',
-        size: att.size || att.content?.length || 0,
-        contentId: att.contentId || undefined,
-        href: bufferToDataUrl({
-          content: att.content,
+    // For message/rfc822 attachments, recursively extract nested attachments
+    const attachments = [];
+    for (const att of email.attachments || []) {
+      if ((att.mimeType || '').toLowerCase() === 'message/rfc822' && att.content) {
+        // Extract nested attachments from the attached email
+        const nested = await extractNestedAttachments(att);
+        attachments.push(...nested);
+        // Keep the message/rfc822 itself as a downloadable .eml
+        const emlName = att.filename || 'attached-email.eml';
+        attachments.push({
+          name: emlName,
+          filename: emlName,
+          size: att.size || att.content?.length || 0,
+          contentId: att.contentId || undefined,
+          disposition: 'attachment',
+          href: bufferToDataUrl({
+            content: att.content,
+            contentType: 'message/rfc822',
+          }),
+          contentType: 'message/rfc822',
+        });
+      } else {
+        attachments.push({
+          name: att.filename || 'attachment',
+          filename: att.filename || 'attachment',
+          size: att.size || att.content?.length || 0,
+          contentId: att.contentId || undefined,
+          disposition: (att.disposition || '').toLowerCase(),
+          href: bufferToDataUrl({
+            content: att.content,
+            contentType: att.mimeType || att.contentType || 'application/octet-stream',
+          }),
           contentType: att.mimeType || att.contentType || 'application/octet-stream',
-        }),
-        contentType: att.mimeType || att.contentType || 'application/octet-stream',
-      })) || [];
+        });
+      }
+    }
 
     // Merge with existing attachments and filter out PGP-related files
     // PostalMime attachments come first so they win deduplication (they have data URL hrefs)
