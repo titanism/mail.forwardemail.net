@@ -574,16 +574,15 @@ async function parseRawMessage(raw, existingAttachments = []) {
     const email = await parser.parse(raw);
 
     // Convert postal-mime attachments to data URLs
-    // For message/rfc822 attachments, recursively extract nested attachments
-    const attachments = [];
+    // First pass: collect all parent-level attachments (these take dedup priority).
+    // For message/rfc822 parts, add the .eml itself now but defer nested extraction.
+    const parentAttachments = [];
+    const rfc822Parts = [];
     for (const att of email.attachments || []) {
       if ((att.mimeType || '').toLowerCase() === 'message/rfc822' && att.content) {
-        // Extract nested attachments from the attached email
-        const nested = await extractNestedAttachments(att);
-        attachments.push(...nested);
-        // Keep the message/rfc822 itself as a downloadable .eml
+        rfc822Parts.push(att);
         const emlName = att.filename || 'attached-email.eml';
-        attachments.push({
+        parentAttachments.push({
           name: emlName,
           filename: emlName,
           size: att.size || att.content?.length || 0,
@@ -596,7 +595,7 @@ async function parseRawMessage(raw, existingAttachments = []) {
           contentType: 'message/rfc822',
         });
       } else {
-        attachments.push({
+        parentAttachments.push({
           name: att.filename || 'attachment',
           filename: att.filename || 'attachment',
           size: att.size || att.content?.length || 0,
@@ -610,6 +609,15 @@ async function parseRawMessage(raw, existingAttachments = []) {
         });
       }
     }
+
+    // Second pass: extract nested attachments from rfc822 parts.
+    // Added after parent attachments so dedup prefers the parent versions.
+    const nestedAttachments = [];
+    for (const rfc of rfc822Parts) {
+      const nested = await extractNestedAttachments(rfc);
+      nestedAttachments.push(...nested);
+    }
+    const attachments = [...parentAttachments, ...nestedAttachments];
 
     // Merge with existing attachments and filter out PGP-related files
     // PostalMime attachments come first so they win deduplication (they have data URL hrefs)
