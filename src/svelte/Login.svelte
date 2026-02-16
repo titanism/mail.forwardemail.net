@@ -22,7 +22,11 @@
   let isAddingAccount = $state(getIsAddingAccount());
 
   // Don't prefill email when adding a new account
-  const getInitialEmail = () => getIsAddingAccount() ? '' : (Local.get('email') || '');
+  const getInitialEmail = () => {
+    if (getIsAddingAccount()) return '';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('email') || Local.get('email') || '';
+  };
   let email = $state(getInitialEmail());
   let password = $state('');
 
