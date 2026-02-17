@@ -1262,11 +1262,15 @@
     return `draft-${Date.now()}-${minimizedDraftSequence}`;
   };
 
-  const closeComposer = async (skipConfirm = false) => {
-    if (!skipConfirm && hasUnsavedContent()) {
-      showDiscardModal = true;
-      return;
+  const closeComposer = async () => {
+    if (hasUnsavedContent()) {
+      try {
+        await saveCurrentDraft();
+      } catch {
+        // Save failed — toast already shown by saveCurrentDraft
+      }
     }
+    autosaveTimer?.stop();
     setVisible(false);
     reset();
   };
@@ -1275,7 +1279,10 @@
     if (hasUnsavedContent()) {
       showDiscardModal = true;
     } else {
-      closeComposer(true);
+      // Nothing to discard — just close
+      autosaveTimer?.stop();
+      setVisible(false);
+      reset();
     }
   };
 
@@ -2161,7 +2168,7 @@
   };
 
   const close = () => {
-    closeComposer(false);
+    closeComposer();
   };
 
   // API functions for external use
@@ -2254,7 +2261,7 @@
     aria-modal={!compact}
   >
       <header class="flex items-center justify-between gap-2 px-4 py-3 border-b border-border bg-muted/30">
-        <Button variant="ghost" size="icon" class="md:hidden" onclick={() => closeComposer(true)}>
+        <Button variant="ghost" size="icon" class="md:hidden" onclick={() => closeComposer()}>
           <ChevronLeft class="h-5 w-5" />
         </Button>
 
@@ -2411,7 +2418,7 @@
                 <button
                   type="button"
                   class="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent"
-                  onclick={() => { showMobileMenu = false; closeComposer(false); }}
+                  onclick={() => { showMobileMenu = false; promptDiscardDraft(); }}
                 >
                   <Trash2 class="h-4 w-4" />
                   Discard
