@@ -3,7 +3,7 @@ import { mailboxStore } from '../stores/mailboxStore';
 import { Local } from './storage';
 import { startInitialSync } from './sync-controller';
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 300_000; // 5 minutes — WebSocket handles real-time updates
 
 /**
  * TODO: Replace polling implementation with WebSocket-based real-time updates.

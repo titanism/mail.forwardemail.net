@@ -22,16 +22,16 @@ test.describe('Calendar Navigation', () => {
     await expect(calendar).toBeVisible();
   });
 
-  test.skip('should show existing events on calendar', async ({ page }) => {
-    // Note: Skipping this test because Schedule-X event rendering timing is complex
-    // The upload, create, and edit tests provide better coverage
+  test('should show existing events on calendar', async ({ page }) => {
     await page.goto('/calendar');
     await page.waitForSelector('.sx-svelte-calendar-wrapper', { timeout: 10000 });
-    await page.waitForTimeout(2000);
 
-    const eventElements = page.locator('.sx__event, .sx__month-grid-event, .sx__time-grid-event');
-    const morningStandup = page.locator('text=Morning Standup');
+    // Mock events now use today's date, so they should appear in the current view.
+    // Schedule-X renders events asynchronously; use polling with a generous timeout.
+    const eventLocator = page
+      .locator('.sx__event, .sx__month-grid-event, .sx__time-grid-event, [class*="sx__"]')
+      .filter({ hasText: /Morning Standup|Client Meeting|Team Building/ });
 
-    await expect(eventElements.or(morningStandup).first()).toBeVisible({ timeout: 5000 });
+    await expect(eventLocator.first()).toBeVisible({ timeout: 10000 });
   });
 });

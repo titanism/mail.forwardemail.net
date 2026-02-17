@@ -6,6 +6,8 @@
   import { getDatabaseInfo, CURRENT_SCHEMA_VERSION, db } from '../utils/db';
   import { cacheManager } from '../utils/cache-manager';
   import { unregisterServiceWorker } from '../utils/sw-cache.js';
+  import AppLockSettings from './AppLockSettings.svelte';
+  import MailtoSettings from './components/MailtoSettings.svelte';
   import { forceDeleteAllDatabases } from '../utils/db-recovery.js';
   import { refreshSyncWorkerPgpKeys } from '../utils/sync-worker-client.js';
   import { initPerfObservers } from '../utils/perf-logger.ts';
@@ -1361,6 +1363,12 @@
       {/if}
 
       {#if section === 'privacy'}
+        <!-- Default Email App (mailto handler) -->
+        <MailtoSettings />
+
+        <!-- App Lock section - above PGP encryption -->
+        <AppLockSettings />
+
         <Card.Root>
           <Card.Header>
             <Card.Title>PGP encryption</Card.Title>

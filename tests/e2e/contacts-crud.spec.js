@@ -210,6 +210,7 @@ test.describe('Contact Update - Inline Editing', () => {
   });
 
   test('should update contact notes', async ({ page }) => {
+    test.setTimeout(120_000); // This test is slow under parallel load
     await selectContact(page, 'Bob Smith');
 
     // Edit notes

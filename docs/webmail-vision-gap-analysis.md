@@ -80,9 +80,9 @@ Sources reviewed: `../webmail-vision/README.md`, `../webmail-vision/SPECIFICATIO
 
 ### Deployment & Native Apps
 
-- **Expectation:** Release-based CI/CD to R2 with tests, plus native app packaging (Neutralino/Tauri/Capacitor) and manifest updates.
+- **Expectation:** Release-based CI/CD to R2 with tests, plus native app packaging (Tauri v2) and manifest updates.
 - **Current:** GitHub Actions deploy on push to `main` (lint/format/build; tests commented out) and sync to R2; no native app artifacts/manifests.
-- **TODO:** Move to release-triggered deploy or add staging; re-enable tests in pipeline; add native packaging steps/manifests if pursuing Neutralino/Tauri; align with vision’s update manifest flow.
+- **TODO:** Move to release-triggered deploy or add staging; re-enable tests in pipeline; Tauri v2 packaging is now integrated with signed desktop and mobile builds; align with vision's update manifest flow.
 
 ## Highest-Impact Next Steps
 

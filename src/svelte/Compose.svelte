@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, onMount, onDestroy } from 'svelte';
   import { writable } from 'svelte/store';
+  import DOMPurify from 'dompurify';
   import { Editor, Node, Extension } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
   import LinkBase from '@tiptap/extension-link';
@@ -323,7 +324,11 @@
           try {
             const decoded = decodeRawHtml((currentNode.attrs.raw as string) || '');
             if (decoded && isValidDecodedHtml(decoded)) {
-              inner.innerHTML = decoded;
+              inner.innerHTML = DOMPurify.sanitize(decoded, {
+                USE_PROFILES: { html: true },
+                FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+                FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
+              });
             } else {
               inner.innerHTML = '';
               inner.textContent = extractRawQuoteText((currentNode.attrs.raw as string) || '') || '';
@@ -1262,15 +1267,11 @@
     return `draft-${Date.now()}-${minimizedDraftSequence}`;
   };
 
-  const closeComposer = async () => {
-    if (hasUnsavedContent()) {
-      try {
-        await saveCurrentDraft();
-      } catch {
-        // Save failed — toast already shown by saveCurrentDraft
-      }
+  const closeComposer = async (skipConfirm = false) => {
+    if (!skipConfirm && hasUnsavedContent()) {
+      showDiscardModal = true;
+      return;
     }
-    autosaveTimer?.stop();
     setVisible(false);
     reset();
   };
@@ -1279,10 +1280,7 @@
     if (hasUnsavedContent()) {
       showDiscardModal = true;
     } else {
-      // Nothing to discard — just close
-      autosaveTimer?.stop();
-      setVisible(false);
-      reset();
+      closeComposer(true);
     }
   };
 
@@ -1852,7 +1850,6 @@
       await saveSentCopy(payload);
     } catch (err) {
       console.warn('[Compose] Failed to save sent copy:', err);
-      toasts?.show?.('Message sent, but failed to save copy to Sent folder', 'warning');
     }
   };
 
@@ -1948,6 +1945,13 @@
         reset();
         onSent?.({ queued: true });
       } catch (err) {
+        const qe = err as { isDemo?: boolean };
+        if (qe.isDemo) {
+          setVisible(false);
+          reset();
+          sending = false;
+          return;
+        }
         error = 'Failed to queue message';
         toasts?.show?.(error, 'error');
       } finally {
@@ -1981,7 +1985,14 @@
       reset();
       onSent?.();
     } catch (err) {
-      const e = err as { message?: string; status?: number };
+      const e = err as { message?: string; status?: number; isDemo?: boolean };
+      // Demo mode errors already show their own toast — just close the compose
+      if (e.isDemo) {
+        setVisible(false);
+        reset();
+        sending = false;
+        return;
+      }
       if (e.message?.includes('network') || e.message?.includes('fetch') || e.status === 0) {
         try {
           await queueEmail(payload);
@@ -2169,7 +2180,7 @@
   };
 
   const close = () => {
-    closeComposer();
+    closeComposer(false);
   };
 
   // API functions for external use
@@ -2262,7 +2273,7 @@
     aria-modal={!compact}
   >
       <header class="flex items-center justify-between gap-2 px-4 py-3 border-b border-border bg-muted/30">
-        <Button variant="ghost" size="icon" class="md:hidden" onclick={() => closeComposer()}>
+        <Button variant="ghost" size="icon" class="md:hidden" onclick={() => closeComposer(true)}>
           <ChevronLeft class="h-5 w-5" />
         </Button>
 
@@ -2419,7 +2430,7 @@
                 <button
                   type="button"
                   class="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent"
-                  onclick={() => { showMobileMenu = false; promptDiscardDraft(); }}
+                  onclick={() => { showMobileMenu = false; closeComposer(false); }}
                 >
                   <Trash2 class="h-4 w-4" />
                   Discard

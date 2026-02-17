@@ -12,15 +12,36 @@
  * @param isDarkMode - Whether the app is in dark mode
  * @returns Complete HTML document string for srcdoc
  */
+// Eagerly compute the script hash at module load time so buildIframeSrcdoc
+// can remain synchronous.  The hash is cached after the first (async) computation
+// and a synchronous fallback ('unsafe-inline') is used until it's ready.
+let _cachedScriptHash: string | null = null;
+
+(async function precomputeHash() {
+  try {
+    const script = getEmbeddedScript();
+    const encoder = new TextEncoder();
+    const data = encoder.encode(script);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    _cachedScriptHash = btoa(String.fromCharCode(...hashArray));
+  } catch {
+    // crypto.subtle may not be available in some contexts; fall back to unsafe-inline
+  }
+})();
+
 export function buildIframeSrcdoc(emailHtml: string, isDarkMode: boolean = false): string {
   const bodyClass = isDarkMode ? 'fe-iframe-dark' : 'fe-iframe-light';
+  const scriptContent = getEmbeddedScript();
+  // Use the pre-computed hash if available, otherwise fall back to 'unsafe-inline'
+  const scriptSrc = _cachedScriptHash ? `'sha256-${_cachedScriptHash}'` : "'unsafe-inline'";
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https: http:; font-src data: https:; script-src 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https: http:; font-src data: https:; script-src ${scriptSrc};">
   <style>
     ${getResetStyles()}
     ${getAppearanceStyles()}
@@ -32,7 +53,7 @@ export function buildIframeSrcdoc(emailHtml: string, isDarkMode: boolean = false
     ${emailHtml}
   </div>
   <script>
-    ${getEmbeddedScript()}
+    ${scriptContent}
   </script>
 </body>
 </html>`;

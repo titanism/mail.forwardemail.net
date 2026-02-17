@@ -17,6 +17,7 @@
   import { truncatePreview } from '../utils/preview';
   import { validateLabelName } from '../utils/label-validation.ts';
   import { restoreBlockedImages } from '../utils/sanitize.js';
+  import DOMPurify from 'dompurify';
   import { LABEL_PALETTE, pickLabelColor as pickLabelColorFromPalette } from '../utils/labels.js';
   import { processQuotedContent, initQuoteToggles } from '../utils/quote-collapse.js';
   import {
@@ -52,6 +53,7 @@
   import { getMessageApiId } from '../utils/sync-helpers.ts';
   import { getSyncSettings } from '../utils/sync-settings.js';
   import { parseMailto, mailtoToPrefill } from '../utils/mailto';
+  import MailtoPrompt from './components/MailtoPrompt.svelte';
   import {
     outboxCount,
     outboxProcessing,
@@ -937,6 +939,21 @@ const stopVerticalResize = () => {
     const name = (att?.name || att?.filename || '').toLowerCase();
     const ext = name.includes('.') ? name.split('.').pop() : '';
     return ext ? PREVIEWABLE_EXTENSIONS.has(ext) : false;
+  };
+
+  /**
+   * Sanitize outbox HTML preview to prevent XSS.
+   * Outbox items may contain user-composed HTML that has not been
+   * server-sanitized, so we must run DOMPurify before rendering.
+   */
+  const sanitizeOutboxHtml = (html: string): string => {
+    if (!html) return '';
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|ftp):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'textarea', 'select', 'button'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+    });
   };
 
   const formatAttachmentSize = (bytes) => {
@@ -5614,7 +5631,7 @@ const stopVerticalResize = () => {
           </div>
         {/if}
         <div class="prose prose-sm dark:prose-invert max-w-none" bind:this={outboxMessageBodyContainer}>
-          {@html selectedOutboxItem.emailData?.html || selectedOutboxItem.emailData?.text || ''}
+          {@html sanitizeOutboxHtml(selectedOutboxItem.emailData?.html || selectedOutboxItem.emailData?.text || '')}
         </div>
         {#if selectedOutboxItem.emailData?.attachments?.length}
           <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
@@ -6558,6 +6575,11 @@ const stopVerticalResize = () => {
 </div>
 {/if}
 </Tooltip.Provider>
+
+<!-- Mailto handler prompt (shown once on first INBOX render after sign-in) -->
+{#if $selectedFolder === 'INBOX'}
+  <MailtoPrompt account={$currentAccount || ''} />
+{/if}
 
 <style>
   /* Shared list layout tokens */

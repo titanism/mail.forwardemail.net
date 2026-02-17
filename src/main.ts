@@ -4,6 +4,7 @@ import { Local, reconcileOrphanedAccountData } from './utils/storage';
 import { keyboardShortcuts, showKeyboardShortcutsHelp } from './utils/keyboard-shortcuts';
 import { i18n } from './utils/i18n';
 import { createToastHost } from './svelte/toastsHost';
+import { setDemoToasts } from './utils/demo-mode';
 import Login from './svelte/Login.svelte';
 import Settings from './svelte/Settings.svelte';
 import Passphrase from './svelte/PassphraseModal.svelte';
@@ -39,20 +40,20 @@ style.textContent = `
     pointer-events: none !important;
     visibility: hidden !important;
   }
-  
+
   /* Ensure compose modal is always visible and clickable when present */
   #compose-root {
     pointer-events: auto !important;
     position: relative;
     z-index: 9999;
   }
-  
+
   #compose-root .fe-modal-backdrop {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
   }
-  
+
   #compose-root .fe-modal {
     display: flex !important;
     flex-direction: column !important;
@@ -66,6 +67,13 @@ document.head.appendChild(style);
 import './utils/error-logger';
 
 import { sendSyncTask, terminateSyncWorker } from './utils/sync-worker-client.js';
+import { initSyncBridge } from './utils/sync-bridge.js';
+import { canUseServiceWorker, isTauri } from './utils/platform.js';
+import { isLockEnabled, isUnlocked, lock as lockCryptoStore } from './utils/crypto-store.js';
+import {
+  start as startInactivityTimer,
+  pause as pauseInactivityTimer,
+} from './utils/inactivity-timer.js';
 import { startOutboxProcessor, processOutbox } from './utils/outbox-service';
 import { initMutationQueue, processMutationQueue } from './utils/mutation-queue';
 import { syncPendingDrafts } from './utils/draft-service';
@@ -296,6 +304,7 @@ window.addEventListener('mutation-queue-failed', () => {
 // Set up mailboxActions references
 mailboxActions.setToasts(toasts);
 setIndexToasts(toasts);
+setDemoToasts(toasts);
 viewModel.toasts = toasts;
 viewModel.mailboxView.toasts = toasts;
 
@@ -426,6 +435,22 @@ if (contactsRoot) {
       console.error('Failed to load contacts component', err);
     });
 }
+
+// Wire WebSocket CustomEvents to Calendar and Contacts APIs.
+// The websocket-updater dispatches these events when CalDAV/CardDAV changes arrive.
+// We listen here because calendarApi/contactsApi are only available in main.ts scope.
+window.addEventListener('fe:calendar-changed', () => {
+  calendarApi.reload?.();
+});
+window.addEventListener('fe:calendar-event-changed', () => {
+  calendarApi.reload?.();
+});
+window.addEventListener('fe:contacts-changed', () => {
+  contactsApi.reload?.();
+});
+window.addEventListener('fe:contact-changed', () => {
+  contactsApi.reload?.();
+});
 
 const composeRoot = document.getElementById('compose-root');
 let _composeApp = null;
@@ -1122,6 +1147,54 @@ async function bootstrap() {
       });
     }
 
+    /**
+     * Show the lock screen overlay. Called on initial load (if locked) and
+     * by the inactivity timer when the user walks away.
+     */
+    async function showLockScreen(): Promise<void> {
+      // Wipe the DEK from memory so the app is truly locked
+      lockCryptoStore();
+      pauseInactivityTimer();
+
+      // Remove any existing overlay (defensive)
+      document.getElementById('app-lock-overlay')?.remove();
+
+      const lockOverlay = document.createElement('div');
+      lockOverlay.id = 'app-lock-overlay';
+      lockOverlay.style.cssText =
+        'position:fixed;inset:0;z-index:99999;background:var(--background,#0f172a);';
+      document.body.appendChild(lockOverlay);
+
+      const { default: LockScreen } = await import('./svelte/LockScreen.svelte');
+      mount(LockScreen, { target: lockOverlay });
+
+      // Wait for unlock, then tear down the overlay and restart the timer
+      await new Promise<void>((resolve) => {
+        lockOverlay.addEventListener('unlock', () => {
+          lockOverlay.remove();
+          startInactivityTimer(showLockScreen);
+          resolve();
+        });
+        // Fallback polling in case the Svelte custom event is missed
+        const checkUnlock = setInterval(() => {
+          if (isUnlocked()) {
+            clearInterval(checkUnlock);
+            lockOverlay.remove();
+            startInactivityTimer(showLockScreen);
+            resolve();
+          }
+        }, 500);
+      });
+    }
+
+    // Check if app lock is enabled and show lock screen before any content
+    if (isLockEnabled() && !isUnlocked()) {
+      await showLockScreen();
+    } else if (isLockEnabled()) {
+      // App lock enabled but key already available (e.g., page reload within timeout)
+      startInactivityTimer(showLockScreen);
+    }
+
     let route = currentRoute();
     const params = new URLSearchParams(window.location.search);
     const isAddingAccount = params.get('add_account') === 'true';
@@ -1200,11 +1273,82 @@ async function bootstrap() {
       processMutationQueue();
     });
 
-    if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    // Initialise the sync bridge (picks SW or main-thread shim)
+    initSyncBridge();
+
+    // Tauri-specific native integrations (desktop + mobile)
+    if (isTauri) {
+      import('./utils/tauri-bridge.js').then(({ initTauriBridge }) => initTauriBridge());
+      import('./utils/updater-bridge.js').then(({ initAutoUpdater }) => initAutoUpdater());
+      import('./utils/notification-bridge.js').then(({ initNotificationChannels }) =>
+        initNotificationChannels(),
+      );
+    }
+
+    if (canUseServiceWorker() && import.meta.env.PROD) {
       window.addEventListener('load', () => {
         registerServiceWorker();
       });
     }
+
+    // Web auto-updater: listen for newRelease WebSocket events
+    if (!isTauri && import.meta.env.PROD) {
+      import('./utils/web-updater.js').then(({ start: startWebUpdater }) => startWebUpdater());
+    }
+
+    // Register as mailto: handler on the web (not in Tauri — Tauri handles via OS registration)
+    if (!isTauri && navigator.registerProtocolHandler) {
+      try {
+        // The %s placeholder is replaced by the browser with the full mailto: URI
+        navigator.registerProtocolHandler('mailto', `${window.location.origin}/mailbox#mailto=%s`);
+      } catch (err) {
+        console.warn('[main] Failed to register mailto: handler', err);
+      }
+    }
+
+    // Listen for deep-link events from Tauri (mailto:, forwardemail://)
+    // The tauri-bridge dispatches 'app:deep-link' CustomEvents on window.
+    window.addEventListener('app:deep-link', (event: Event) => {
+      const url = (event as CustomEvent)?.detail?.url;
+      if (!url || typeof url !== 'string') return;
+
+      const trimmed = url.trim();
+
+      // Handle mailto: deep links → open Compose with prefilled fields
+      if (trimmed.toLowerCase().startsWith('mailto:')) {
+        const parsed = parseMailto(trimmed);
+        if (viewModel?.mailboxView?.composeModal?.open) {
+          viewModel.mailboxView.composeModal.open(mailtoToPrefill(parsed));
+        }
+        return;
+      }
+
+      // Handle forwardemail:// deep links → navigate to the path
+      if (trimmed.toLowerCase().startsWith('forwardemail://')) {
+        const path = trimmed.replace(/^forwardemail:\/\//i, '/');
+        if (viewModel?.navigate && /^\/[a-z]/.test(path)) {
+          viewModel.navigate(path);
+        }
+      }
+    });
+
+    // Handle single-instance events (second app launch with mailto: arg)
+    // When the user clicks a mailto: link while the app is already running,
+    // Tauri sends the URL via the single-instance plugin.
+    window.addEventListener('app:single-instance', (event: Event) => {
+      const args = (event as CustomEvent)?.detail?.args;
+      if (!Array.isArray(args)) return;
+
+      for (const arg of args) {
+        if (typeof arg === 'string' && arg.toLowerCase().startsWith('mailto:')) {
+          const parsed = parseMailto(arg);
+          if (viewModel?.mailboxView?.composeModal?.open) {
+            viewModel.mailboxView.composeModal.open(mailtoToPrefill(parsed));
+          }
+          break;
+        }
+      }
+    });
   } catch (error) {
     console.error('[main] bootstrap failed', error);
 
@@ -1224,15 +1368,12 @@ async function bootstrap() {
   }
 }
 
-// Handle database error messages from service worker
+// Handle database error messages from service worker or sync-shim
 function setupServiceWorkerDbErrorHandler() {
-  if (!('serviceWorker' in navigator)) return;
-
-  navigator.serviceWorker.addEventListener('message', async (event) => {
-    const data = event.data;
+  // Shared handler for dbError messages from any sync back-end
+  const handleDbError = async (data) => {
     if (!data || data.type !== 'dbError') return;
-
-    console.error('[SW -> Main] Database error from service worker:', data);
+    console.error('[Sync -> Main] Database error:', data);
 
     // If the error is recoverable, attempt recovery
     if (data.recoverable) {
@@ -1258,6 +1399,18 @@ function setupServiceWorkerDbErrorHandler() {
     } else {
       toasts?.show?.('Local storage error. Some features may not work.', 'warning');
     }
+  };
+
+  // Listen from SW (web)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      handleDbError(event.data);
+    });
+  }
+
+  // Listen from sync-shim (Tauri desktop / mobile)
+  window.addEventListener('sync-shim-message', (event) => {
+    handleDbError(event.detail);
   });
 }
 
@@ -1300,6 +1453,18 @@ window.addEventListener('popstate', () => {
 // Handle hash-based deep links (e.g., /mailbox#compose=user@example.com or /mailbox#INBOX/12345)
 handleHashActions = function () {
   const hash = window.location.hash || '';
+
+  // Sanitize hash: block javascript:, data:, vbscript: schemes
+  if (/^#\s*(javascript|vbscript|data):/i.test(hash)) {
+    history.replaceState({}, '', window.location.pathname);
+    return;
+  }
+
+  // Limit hash length to prevent abuse
+  if (hash.length > 2048) {
+    history.replaceState({}, '', window.location.pathname);
+    return;
+  }
   if (hash.startsWith('#compose=') || hash.startsWith('#mailto=')) {
     const rawValue = hash.startsWith('#compose=')
       ? decodeURIComponent(hash.replace('#compose=', ''))
@@ -1401,12 +1566,13 @@ function startAutoMetadataSync() {
   }
   if (get(mailboxActions.initialSyncStarted)) return;
 
-  // Disabled automatic interval sync - only sync on startup and manual refresh
-  // autoSyncTimer = setInterval(() => {
-  //   if (currentRoute() === 'mailbox') {
-  //     runMetadataSync('interval');
-  //   }
-  // }, AUTO_SYNC_INTERVAL);
+  // 5-minute interval sync as safety net — WebSocket handles real-time updates
+  const AUTO_SYNC_INTERVAL = 300_000; // 5 minutes
+  autoSyncTimer = setInterval(() => {
+    if (currentRoute() === 'mailbox') {
+      runMetadataSync('interval');
+    }
+  }, AUTO_SYNC_INTERVAL);
 
   if (currentRoute() === 'mailbox') {
     runMetadataSync('startup');

@@ -32,7 +32,7 @@ import { resolveSearchBodyIndexing } from '../utils/search-body-indexing.js';
 import { LABEL_PALETTE } from '../utils/labels.js';
 import { queueMutation } from '../utils/mutation-queue';
 import { config } from '../config';
-import { createInboxUpdater } from '../utils/inbox-poller';
+import { createInboxUpdater } from '../utils/websocket-updater';
 import { i18n } from '../utils/i18n';
 import { warn } from '../utils/logger.ts';
 
@@ -246,7 +246,10 @@ export const load = async () => {
     if (inboxUpdater) inboxUpdater.destroy();
     inboxUpdater = createInboxUpdater();
     inboxUpdater.start();
-
+    // Initialise badge count from INBOX unread count (async, non-blocking)
+    import('../utils/notification-manager')
+      .then(({ initBadgeFromStore }) => initBadgeFromStore())
+      .catch(() => {});
     updateStorageStats(nextAccount);
 
     // Prefetch adjacent accounts' INBOX in the SW background
@@ -469,10 +472,11 @@ const validateCachedBody = (content) => {
     warn('[validateCachedBody] Detected escaped HTML in cached body, attempting to fix');
     try {
       // Attempt to unescape the content
-      const textarea = typeof document !== 'undefined' ? document.createElement('textarea') : null;
-      if (textarea) {
-        textarea.innerHTML = content;
-        const unescaped = textarea.value;
+      // Use DOMParser instead of textarea.innerHTML to safely decode HTML entities
+      // textarea.innerHTML is vulnerable to XSS if content contains script-like patterns
+      if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(content, 'text/html');
+        const unescaped = doc.body?.textContent || '';
         // Check if unescaping produced valid HTML
         if (unescaped && !/&lt;[a-zA-Z/]|&gt;/.test(unescaped)) {
           return unescaped;
@@ -1406,6 +1410,14 @@ export const signOut = async () => {
   // Stop inbox polling
   if (inboxUpdater) inboxUpdater.destroy();
   inboxUpdater = null;
+
+  // Deactivate demo mode and clear its localStorage key
+  try {
+    const { deactivateDemoMode } = await import('../utils/demo-mode.js');
+    deactivateDemoMode();
+  } catch {
+    // demo-mode module may not be loaded
+  }
 
   clearSensitiveClientStorage(currentEmail);
 

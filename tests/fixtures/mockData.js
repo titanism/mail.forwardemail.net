@@ -99,6 +99,27 @@ END:VCARD`,
 
 export const mockCalendars = [{ id: 'default', name: 'My Calendar', displayName: 'My Calendar' }];
 
+// Generate dynamic dates relative to today so events always appear in the current calendar view
+function todayAt(hours, minutes = 0) {
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d.toISOString();
+}
+
+function allDayDate(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function allDayEnd(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 export const mockEvents = [
   {
     id: 'evt-001',
@@ -106,12 +127,12 @@ export const mockEvents = [
     calendar_id: 'default',
     summary: 'Morning Standup',
     title: 'Morning Standup',
-    start: '2026-01-20T09:00:00.000Z',
-    end: '2026-01-20T09:30:00.000Z',
-    start_date: '2026-01-20T09:00:00.000Z',
-    end_date: '2026-01-20T09:30:00.000Z',
-    dtstart: '2026-01-20T09:00:00.000Z',
-    dtend: '2026-01-20T09:30:00.000Z',
+    start: todayAt(9, 0),
+    end: todayAt(9, 30),
+    start_date: todayAt(9, 0),
+    end_date: todayAt(9, 30),
+    dtstart: todayAt(9, 0),
+    dtend: todayAt(9, 30),
     description: 'Daily team sync',
     location: '',
     url: '',
@@ -126,12 +147,12 @@ export const mockEvents = [
     calendar_id: 'default',
     summary: 'Client Meeting',
     title: 'Client Meeting',
-    start: '2026-01-20T14:00:00.000Z',
-    end: '2026-01-20T15:00:00.000Z',
-    start_date: '2026-01-20T14:00:00.000Z',
-    end_date: '2026-01-20T15:00:00.000Z',
-    dtstart: '2026-01-20T14:00:00.000Z',
-    dtend: '2026-01-20T15:00:00.000Z',
+    start: todayAt(14, 0),
+    end: todayAt(15, 0),
+    start_date: todayAt(14, 0),
+    end_date: todayAt(15, 0),
+    dtstart: todayAt(14, 0),
+    dtend: todayAt(15, 0),
     description: 'Quarterly review with ABC Corp',
     location: 'Conference Room A',
     url: 'https://zoom.us/j/123456',
@@ -146,12 +167,12 @@ export const mockEvents = [
     calendar_id: 'default',
     summary: 'Team Building Day',
     title: 'Team Building Day',
-    start: '2026-01-25T00:00:00.000Z',
-    end: '2026-01-25T23:59:59.999Z',
-    start_date: '2026-01-25T00:00:00.000Z',
-    end_date: '2026-01-25T23:59:59.999Z',
-    dtstart: '2026-01-25T00:00:00.000Z',
-    dtend: '2026-01-25T23:59:59.999Z',
+    start: allDayDate(1),
+    end: allDayEnd(1),
+    start_date: allDayDate(1),
+    end_date: allDayEnd(1),
+    dtstart: allDayDate(1),
+    dtend: allDayEnd(1),
     description: 'Annual team building activities',
     location: 'City Park',
     url: '',

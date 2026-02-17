@@ -1435,7 +1435,10 @@ $effect(() => {
           onClickDateTime: (dateTime: string) => {
             openNewEvent(dateTime);
           },
-          onEventClick: (ev: unknown) => openEditEvent(ev),
+          onEventClick: (ev: unknown) => {
+            _eventClickGuard = true;
+            openEditEvent(ev);
+          },
         },
       });
       calendarCreated = true;
@@ -1483,7 +1486,25 @@ const ensureEndAfterStart = (date: string, startTime: string, startMeridiem: str
   return { start, end };
 };
 
+// Guard flag to prevent onClickDate from overriding onEventClick.
+// Schedule-X may fire onClickDate before onEventClick (click bubbles from
+// the event element to the date cell), so we defer the new-event open by
+// one microtask to let onEventClick set the guard first.
+let _eventClickGuard = false;
+
 const openNewEvent = (dateInput: unknown) => {
+  // Defer so that a synchronous onEventClick callback can set the guard
+  // before we check it.
+  setTimeout(() => {
+    if (_eventClickGuard) {
+      _eventClickGuard = false;
+      return;
+    }
+    _openNewEventImmediate(dateInput);
+  }, 0);
+};
+
+const _openNewEventImmediate = (dateInput: unknown) => {
   const dateObj = toDate(dateInput) || new Date();
   const roundedStart = roundTime(dateObj, 30);
   const startLocal = formatDateTimeLocal(roundedStart);

@@ -5,6 +5,7 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
+import fs from 'fs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('./package.json');
@@ -17,6 +18,70 @@ const BUILD_HASH = createHash('md5')
   .digest('hex')
   .slice(0, 8);
 const APP_VERSION = `${pkg.version}-${BUILD_HASH}`;
+
+// Resolve the libsodium core ESM file path.
+// pnpm's strict layout means the ESM wrappers file's relative import
+// `from "./libsodium.mjs"` cannot find the core package as a sibling.
+// We locate it once at config time and redirect the import via a plugin.
+function findLibsodiumCorePath() {
+  try {
+    // The libsodium package is a dependency of libsodium-wrappers.
+    // In pnpm it lives under its own .pnpm directory.
+    const wrappersEntry = require.resolve('libsodium-wrappers');
+    // Walk up from the wrappers entry to find the pnpm virtual store
+    const pnpmStore = wrappersEntry.split('node_modules/.pnpm/')[0] + 'node_modules/.pnpm/';
+    // Find the libsodium ESM file
+    const candidates = [
+      path.join(
+        pnpmStore,
+        'libsodium@0.7.16/node_modules/libsodium/dist/modules-esm/libsodium.mjs',
+      ),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    // Fallback: search for it
+    const { execSync } = require('child_process');
+    const found = execSync(
+      `find ${pnpmStore} -name "libsodium.mjs" -path "*/libsodium/*" 2>/dev/null`,
+      { encoding: 'utf8' },
+    )
+      .trim()
+      .split('\n')[0];
+    if (found && fs.existsSync(found)) return found;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+const LIBSODIUM_CORE_ESM = findLibsodiumCorePath();
+
+/**
+ * Vite/Rollup plugin to fix libsodium ESM resolution under pnpm.
+ *
+ * The `libsodium-wrappers` ESM entry imports `from "./libsodium.mjs"` but
+ * under pnpm's strict layout the core `libsodium` package is not a sibling
+ * directory.  This plugin intercepts that broken relative import and
+ * redirects it to the actual file on disk.
+ */
+function libsodiumResolverPlugin() {
+  return {
+    name: 'libsodium-resolver',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (
+        LIBSODIUM_CORE_ESM &&
+        importer &&
+        importer.includes('libsodium-wrappers') &&
+        (source === './libsodium.mjs' || source === './libsodium-sumo.mjs')
+      ) {
+        return LIBSODIUM_CORE_ESM;
+      }
+      return null;
+    },
+  };
+}
 
 export default defineConfig({
   root: '.',
@@ -33,6 +98,14 @@ export default defineConfig({
       $types: path.resolve('./src/types'),
     },
   },
+  // Exclude libsodium-wrappers from esbuild dep pre-bundling.
+  // Its ESM entry uses a relative import ("./libsodium.mjs") that breaks
+  // under pnpm's strict layout.  The Rollup plugin above handles the
+  // production build; for the dev server we simply skip pre-bundling so
+  // Vite serves the files directly and our resolveId hook can intercept.
+  optimizeDeps: {
+    exclude: ['libsodium-wrappers'],
+  },
   esbuild: {
     sourcemap: false,
   },
@@ -41,10 +114,23 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
+    target: 'esnext',
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
     rollupOptions: {
+      // Tauri APIs are only available in the Tauri runtime; exclude from web builds.
+      // Dynamic imports in the code already guard against calling them on web.
+      external: [
+        '@tauri-apps/api/core',
+        '@tauri-apps/api/event',
+        '@tauri-apps/api/window',
+        '@tauri-apps/plugin-notification',
+        '@tauri-apps/plugin-updater',
+        '@tauri-apps/plugin-os',
+        '@tauri-apps/plugin-deep-link',
+        '@tauri-apps/plugin-process',
+      ],
       input: {
         main: './index.html',
       },
@@ -68,6 +154,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    libsodiumResolverPlugin(),
     svelte(),
     enableAnalyzer &&
       visualizer({

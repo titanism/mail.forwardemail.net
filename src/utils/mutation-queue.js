@@ -5,6 +5,7 @@ import { getAuthHeader } from './auth';
 import { config } from '../config';
 import { writable } from 'svelte/store';
 import { warn } from './logger.ts';
+import { canUseBackgroundSync } from './platform.js';
 
 /**
  * Offline Mutation Queue
@@ -116,7 +117,12 @@ export async function queueMutation(type, payload) {
  * even if the tab is closed when connectivity returns.
  */
 function registerBackgroundSync() {
-  if (!('serviceWorker' in navigator)) return;
+  if (!canUseBackgroundSync()) {
+    // On non-SW platforms the sync-shim handles mutation processing
+    // via online/resume listeners, so nothing to register here.
+    return;
+  }
+
   navigator.serviceWorker.ready
     .then((reg) => {
       if (reg.sync) {
@@ -290,10 +296,17 @@ export function initMutationQueue() {
     processMutationQueue();
   });
 
-  // Listen for SW Background Sync completion to refresh counts
-  if ('serviceWorker' in navigator) {
+  // Listen for Background Sync completion to refresh counts.
+  // On web this comes from the SW; on Tauri desktop/mobile from the sync-shim.
+  if (canUseBackgroundSync()) {
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type === 'mutationQueueProcessed') {
+        getMutationQueueCount();
+      }
+    });
+  } else if (typeof window !== 'undefined') {
+    window.addEventListener('sync-shim-message', (event) => {
+      if (event.detail?.type === 'mutationQueueProcessed') {
         getMutationQueueCount();
       }
     });

@@ -142,11 +142,34 @@ function createResponse(object, path, request) {
   // Security headers
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
-  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  headers.set('X-Permitted-Cross-Domain-Policies', 'none');
+  headers.set('X-DNS-Prefetch-Control', 'off');
 
-  // CORS for fonts (needed for cross-origin font loading)
+  // CSP as HTTP header (in addition to meta tag) for HTML responses
+  if (contentType.includes('text/html')) {
+    headers.set(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.forwardemail.net wss://api.forwardemail.net; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; media-src 'none'",
+    );
+  }
+
+  // CORS for fonts - restrict to same site origin instead of wildcard
   if (path.match(/\.(woff2?|ttf|otf|eot)$/)) {
-    headers.set('Access-Control-Allow-Origin', '*');
+    const origin = request.headers.get('Origin') || '';
+    // Only allow CORS for known origins
+    const allowedOrigins = ['https://mail.forwardemail.net', 'https://app.forwardemail.net'];
+    if (allowedOrigins.includes(origin)) {
+      headers.set('Access-Control-Allow-Origin', origin);
+    } else {
+      // Fallback for same-origin requests (no Origin header)
+      headers.set('Access-Control-Allow-Origin', 'https://mail.forwardemail.net');
+    }
+    headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
   }
 
   // For no-cache paths: don't send ETag/Last-Modified, don't return 304
