@@ -68,6 +68,7 @@
   import TableCell from '@tiptap/extension-table-cell';
   import TableHeader from '@tiptap/extension-table-header';
   import { bufferToDataUrl, extractTextContent } from '../utils/mime-utils.js';
+  import { i18n } from '../utils/i18n';
   import { Remote } from '../utils/remote';
   import { getContacts, mergeRecentAddresses } from '../utils/contact-cache';
   import { Local } from '../utils/storage';
@@ -536,8 +537,8 @@
     const scheduledDate = new Date(sendAt);
     const toRecipients = toList.length ? toList : parseRecipients(toInput);
     return {
-      date: scheduledDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
-      time: scheduledDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      date: scheduledDate.toLocaleDateString(i18n.getFormattingLocale(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
+      time: scheduledDate.toLocaleTimeString(i18n.getFormattingLocale(), { hour: 'numeric', minute: '2-digit' }),
       recipients: toRecipients.join(', '),
       subject: subject || '(No subject)',
     };
@@ -1870,7 +1871,7 @@
       }
       // Delete source message from Drafts folder if this was an edited draft
       await deleteSourceMessage(msgIdToDelete);
-      const formattedDate = new Date(sendAt).toLocaleString('en-US', {
+      const formattedDate = new Date(sendAt).toLocaleString(i18n.getFormattingLocale(), {
         weekday: 'short',
         month: 'short',
         day: 'numeric',

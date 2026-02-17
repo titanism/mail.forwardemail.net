@@ -5,40 +5,54 @@
  * - Older: "12/4/2025 4:59 PM"
  */
 
+import { i18n } from './i18n';
+
 type DateInput = Date | string | number | null | undefined;
 
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
+// Lazily-created formatters keyed by locale so they respect i18n.getFormattingLocale().
+// Cached per locale string to avoid re-creating on every call.
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getFormatter(key: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const locale = i18n.getFormattingLocale();
+  const cacheKey = `${locale ?? ''}:${key}`;
+  let fmt = formatterCache.get(cacheKey);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, options);
+    formatterCache.set(cacheKey, fmt);
+  }
+  return fmt;
+}
+
+const timeOptions: Intl.DateTimeFormatOptions = {
   hour: 'numeric',
   minute: '2-digit',
-});
+};
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
+const dateOptions: Intl.DateTimeFormatOptions = {
   month: 'numeric',
   day: 'numeric',
   year: 'numeric',
-});
+};
 
-// Gmail-style compact date formatting
-// - Current year: "Nov 29"
-// - Other years: "Nov 29 2022"
-const monthDayFormatter = new Intl.DateTimeFormat(undefined, {
+const monthDayOptions: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
-});
+};
 
-const monthDayYearFormatter = new Intl.DateTimeFormat(undefined, {
+const monthDayYearOptions: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
   year: 'numeric',
-});
+};
 
-const readerDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+const readerDateTimeOptions: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
   year: 'numeric',
   hour: 'numeric',
   minute: '2-digit',
-});
+};
 
 export function toDate(value: DateInput): Date | null {
   if (value instanceof Date) return value;
@@ -73,7 +87,7 @@ export function formatFriendlyDate(value: DateInput, now: Date = new Date()): st
     const msInDay = 24 * 60 * 60 * 1000;
     const diffDays = Math.floor((currentDay.getTime() - targetDay.getTime()) / msInDay);
 
-    const timePart = timeFormatter.format(target);
+    const timePart = getFormatter('time', timeOptions).format(target);
     if (diffDays === 0) {
       return timePart;
     }
@@ -81,7 +95,7 @@ export function formatFriendlyDate(value: DateInput, now: Date = new Date()): st
       return `Yesterday ${timePart}`;
     }
 
-    const datePart = dateFormatter.format(target);
+    const datePart = getFormatter('date', dateOptions).format(target);
     return `${datePart} ${timePart}`;
   } catch {
     return '';
@@ -113,16 +127,16 @@ export function formatCompactDate(value: DateInput, now: Date = new Date()): str
 
     // Today: show time
     if (diffDays === 0) {
-      return timeFormatter.format(target);
+      return getFormatter('time', timeOptions).format(target);
     }
 
     // Same year: show "Nov 29"
     if (target.getFullYear() === current.getFullYear()) {
-      return monthDayFormatter.format(target);
+      return getFormatter('monthDay', monthDayOptions).format(target);
     }
 
     // Different year: show "Nov 29 2022"
-    return monthDayYearFormatter.format(target);
+    return getFormatter('monthDayYear', monthDayYearOptions).format(target);
   } catch {
     return '';
   }
@@ -139,7 +153,7 @@ export function formatReaderDate(value: DateInput): string {
       return typeof value === 'string' ? value : '';
     }
 
-    return readerDateTimeFormatter.format(date);
+    return getFormatter('readerDateTime', readerDateTimeOptions).format(date);
   } catch {
     return '';
   }

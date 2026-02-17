@@ -12,6 +12,7 @@
   import { sendSyncRequest } from '../utils/sync-worker-client.js';
   import { Local } from '../utils/storage';
   import { formatCompactDate, formatReaderDate } from '../utils/date';
+  import { i18n } from '../utils/i18n';
   import { extractAddressList, displayAddresses, getReplyToList, extractDisplayName } from '../utils/address.ts';
   import { truncatePreview } from '../utils/preview';
   import { validateLabelName } from '../utils/label-validation.ts';
@@ -661,7 +662,7 @@ const stopVerticalResize = () => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const isTomorrow = date.toDateString() === tomorrow.toDateString();
 
-    const timeStr = date.toLocaleTimeString('en-US', {
+    const timeStr = date.toLocaleTimeString(i18n.getFormattingLocale(), {
       hour: 'numeric',
       minute: '2-digit',
     });
@@ -671,7 +672,7 @@ const stopVerticalResize = () => {
     } else if (isTomorrow) {
       return `Tomorrow ${timeStr}`;
     } else {
-      return date.toLocaleDateString('en-US', {
+      return date.toLocaleDateString(i18n.getFormattingLocale(), {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',

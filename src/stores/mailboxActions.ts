@@ -33,6 +33,7 @@ import { LABEL_PALETTE } from '../utils/labels.js';
 import { queueMutation } from '../utils/mutation-queue';
 import { config } from '../config';
 import { createInboxUpdater } from '../utils/inbox-poller';
+import { i18n } from '../utils/i18n';
 import { warn } from '../utils/logger.ts';
 
 /**
@@ -537,7 +538,7 @@ const formatAttributionDate = (date) => {
   if (!date) return '';
   const d = new Date(typeof date === 'number' ? date : date);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleString('en-US', {
+  return d.toLocaleString(i18n.getFormattingLocale(), {
     weekday: 'short',
     month: 'short',
     day: 'numeric',

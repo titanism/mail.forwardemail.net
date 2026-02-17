@@ -4,6 +4,7 @@
   import { ScheduleXCalendar } from '@schedule-x/svelte';
   import { createCalendar, viewDay, viewWeek, viewMonthGrid } from '@schedule-x/calendar';
   import '@schedule-x/theme-default/dist/index.css';
+  import { i18n } from '../utils/i18n';
   import { Local } from '../utils/storage';
   import { Remote } from '../utils/remote';
   import { db } from '../utils/db';
@@ -362,7 +363,7 @@ const toBase64 = (value: string) => {
 const formatInviteDateRange = (start: Date, end: Date, allDay = false) => {
   if (!(start instanceof Date) || Number.isNaN(start.getTime())) return '';
   if (allDay) {
-    return start.toLocaleDateString('en-US', {
+    return start.toLocaleDateString(i18n.getFormattingLocale(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -370,7 +371,7 @@ const formatInviteDateRange = (start: Date, end: Date, allDay = false) => {
     });
   }
   const format = (date: Date) =>
-    date.toLocaleString('en-US', {
+    date.toLocaleString(i18n.getFormattingLocale(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -1420,7 +1421,7 @@ $effect(() => {
       ensureSafeMutationObserver();
       const isDark = calendarIsDark;
       calendarInstance = createCalendar({
-        locale: 'en-US',
+        locale: i18n.getShortFormattingLocale() || 'en-US',
         views: [viewDay, viewWeek, viewMonthGrid],
         defaultView: resolveDefaultView(),
         events: safeEvents,

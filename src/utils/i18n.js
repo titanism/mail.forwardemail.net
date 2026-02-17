@@ -5,6 +5,7 @@ class I18n {
   constructor() {
     this.translations = {};
     this.currentLocale = 'en';
+    this.formattingLocale = undefined; // Full BCP 47 tag for date/number formatting
     this.fallbackLocale = 'en';
     this.changeListeners = [];
   }
@@ -17,6 +18,9 @@ class I18n {
     const userLocale = Local.get('locale');
     const browserLocale = this.detectBrowserLocale();
     const locale = userLocale || browserLocale || 'en';
+
+    // Store the full browser locale for date/number formatting
+    this.formattingLocale = this.detectFormattingLocale();
 
     await this.setLocale(locale);
   }
@@ -32,6 +36,48 @@ class I18n {
 
     // Extract base language code (e.g., 'en' from 'en-US')
     return language.split('-')[0].toLowerCase();
+  }
+
+  /**
+   * Detect the full BCP 47 locale from the browser for formatting purposes.
+   * Unlike detectBrowserLocale(), this preserves the region code (e.g., 'en-GB').
+   */
+  detectFormattingLocale() {
+    if (typeof navigator === 'undefined') return undefined;
+    return navigator.language || navigator.userLanguage || undefined;
+  }
+
+  /**
+   * Get the locale to use for date/number formatting.
+   * Returns the full BCP 47 tag (e.g., 'en-GB') or undefined to use browser default.
+   */
+  getFormattingLocale() {
+    return this.formattingLocale;
+  }
+
+  /**
+   * Set an explicit formatting locale override.
+   * Pass 'auto' or undefined to revert to browser detection.
+   */
+  setFormattingLocale(locale) {
+    if (!locale || locale === 'auto') {
+      this.formattingLocale = this.detectFormattingLocale();
+    } else {
+      this.formattingLocale = locale;
+    }
+    this.notifyChange();
+  }
+
+  /**
+   * Get a short locale suitable for libraries that only accept language-region
+   * (e.g., 'en-GB' from 'en-GB-oxendict'). Returns at most the first two
+   * subtags of the formatting locale.
+   */
+  getShortFormattingLocale() {
+    const full = this.formattingLocale;
+    if (!full) return undefined;
+    const parts = full.split('-');
+    return parts.length > 2 ? `${parts[0]}-${parts[1]}` : full;
   }
 
   /**
@@ -154,7 +200,9 @@ class I18n {
    */
   formatNumber(number, options = {}) {
     if (typeof Intl === 'undefined') return number.toString();
-    return new Intl.NumberFormat(this.currentLocale, options).format(number);
+    return new Intl.NumberFormat(this.formattingLocale || this.currentLocale, options).format(
+      number,
+    );
   }
 
   /**
@@ -162,7 +210,9 @@ class I18n {
    */
   formatDate(date, options = {}) {
     if (typeof Intl === 'undefined') return date.toString();
-    return new Intl.DateTimeFormat(this.currentLocale, options).format(date);
+    return new Intl.DateTimeFormat(this.formattingLocale || this.currentLocale, options).format(
+      date,
+    );
   }
 
   /**

@@ -82,6 +82,14 @@ const serializeJson = (value: unknown): string => {
 };
 
 export const SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
+  locale: {
+    id: 'locale',
+    label: 'Locale',
+    scope: SETTING_SCOPES.DEVICE,
+    localKey: 'formatting_locale',
+    valueType: 'string',
+    defaultValue: 'auto',
+  },
   theme: {
     id: 'theme',
     label: 'Theme',
