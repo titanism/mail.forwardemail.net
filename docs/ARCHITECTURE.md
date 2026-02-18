@@ -8,15 +8,15 @@ The core principle is to reuse the Svelte 5 + Vite web application as the UI lay
 
 ```mermaid
 graph TD
-    subgraph Web App (Svelte 5 + Vite)
-        A[UI Components] --> B(Stores)
+    subgraph WebApp["Web App (Svelte 5 + Vite)"]
+        A[UI Components] --> B[Stores]
         B --> C{API Client}
         C --> D[REST API]
         B --> E{WebSocket Client}
         E --> F[Real-time API]
     end
 
-    subgraph Tauri (Desktop & Mobile)
+    subgraph TauriShell["Tauri (Desktop & Mobile)"]
         G[Rust Backend] --> H{System WebView}
         H -- loads --> A
         I[Tauri IPC] -- JS Bridge --> A
@@ -24,7 +24,7 @@ graph TD
         J[Tauri Plugins] --> G
     end
 
-    D --- M(api.forwardemail.net)
+    D --- M[api.forwardemail.net]
     F --- M
 ```
 

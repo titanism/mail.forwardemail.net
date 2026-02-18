@@ -5,14 +5,19 @@ Tauri mobile apps on iOS (APNs) and Android (FCM).
 
 ## Architecture Overview
 
-```
-┌──────────────────┐     ┌──────────────────────┐     ┌──────────────────┐
-│  Mobile App      │     │  Forward Email        │     │  APNs / FCM      │
-│  (Tauri + WV)    │────▶│  API Server           │────▶│  Push Gateway    │
-│                  │     │                       │     │                  │
-│  1. Get token    │     │  2. Store token        │     │  3. Deliver push │
-│  4. Show notif   │◀───│  5. Send via gateway   │◀───│                  │
-└──────────────────┘     └──────────────────────┘     └──────────────────┘
+```mermaid
+sequenceDiagram
+    participant App as Mobile App<br/>(Tauri + WebView)
+    participant API as Forward Email<br/>API Server
+    participant Push as APNs / FCM<br/>Push Gateway
+
+    App->>App: 1. Request permission & get device token
+    App->>API: 2. POST /v1/push-tokens (register token)
+    API->>API: 3. Store device token
+    Note over App,API: Later, when new mail arrives...
+    API->>Push: 4. Send push via gateway
+    Push->>App: 5. Deliver push notification
+    App->>App: 6. Display notification & navigate
 ```
 
 ### Flow
