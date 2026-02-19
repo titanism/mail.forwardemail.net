@@ -1,7 +1,8 @@
 # Push Notifications Setup Guide
 
 This document describes how to set up push notifications for the Forward Email
-Tauri mobile apps on iOS (APNs) and Android (FCM).
+Tauri mobile apps on iOS (APNs), Android (FCM), and devices without Google Play
+Services (UnifiedPush).
 
 ## Architecture Overview
 
@@ -9,7 +10,7 @@ Tauri mobile apps on iOS (APNs) and Android (FCM).
 sequenceDiagram
     participant App as Mobile App<br/>(Tauri + WebView)
     participant API as Forward Email<br/>API Server
-    participant Push as APNs / FCM<br/>Push Gateway
+    participant Push as APNs / FCM /<br/>UnifiedPush Gateway
 
     App->>App: 1. Request permission & get device token
     App->>API: 2. POST /v1/push-tokens (register token)
@@ -311,6 +312,72 @@ Use the Forward Email API to verify token registration:
 curl -X GET https://api.forwardemail.net/v1/push-tokens \
   -H "Authorization: Bearer YOUR_AUTH_TOKEN"
 ```
+
+## UnifiedPush (FCM Alternative)
+
+For Android devices without Google Play Services (e.g., GrapheneOS, /e/OS,
+LineageOS), the app supports [UnifiedPush](https://unifiedpush.org) as a
+fallback push notification provider.
+
+### How It Works
+
+1. The user installs a UnifiedPush distributor app (e.g.,
+   [ntfy](https://ntfy.sh), NextPush).
+2. On app launch, if FCM token acquisition fails, the app checks for a
+   UnifiedPush distributor.
+3. If found, the app registers with the distributor and receives an endpoint
+   URL.
+4. The endpoint URL is sent to the Forward Email API server.
+5. When new mail arrives, the server sends an HTTP POST to the endpoint URL.
+6. The distributor forwards the message to the Forward Email app.
+
+### Push Provider Priority
+
+| Priority | Provider                   | Condition                               |
+| -------- | -------------------------- | --------------------------------------- |
+| 1        | FCM (Android) / APNs (iOS) | Google Play Services available          |
+| 2        | UnifiedPush                | Distributor installed, no FCM           |
+| 3        | WebSocket                  | Always active when app is in foreground |
+
+FCM and UnifiedPush handle background push (app closed or backgrounded).
+WebSocket provides real-time updates when the app is in the foreground. They
+complement each other.
+
+### Server-Side UnifiedPush Integration
+
+The Forward Email API server sends push notifications to UnifiedPush endpoints
+using standard HTTP POST. No special SDK is required:
+
+```javascript
+// Example: Send push to a UnifiedPush endpoint
+async function sendUnifiedPush(endpoint, payload) {
+  await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+```
+
+The payload format is the same as the WebSocket event format:
+
+```json
+{
+  "event": "newMessage",
+  "mailbox": "INBOX",
+  "message": { "uid": 42 }
+}
+```
+
+### Testing UnifiedPush
+
+1. Install [ntfy](https://f-droid.org/en/packages/io.heckel.ntfy/) from F-Droid.
+2. Build and install the Forward Email app on a device without Google Play
+   Services.
+3. Sign in — the app should detect the ntfy distributor and register.
+4. Background the app.
+5. Send an email to the signed-in account.
+6. Verify the push notification appears via ntfy.
 
 ## Troubleshooting
 

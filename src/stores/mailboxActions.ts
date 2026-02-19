@@ -1451,9 +1451,36 @@ export const signOut = async () => {
     }
 
     // No other accounts, clear everything and go to login
-    Local.clear();
+    // Close the Dexie instance inside the worker, then terminate the worker
+    // so no connection holds the IndexedDB open during deletion
+    try {
+      const { closeDatabase, terminateDbWorker } = await import('../utils/db-worker-client.js');
+      await closeDatabase();
+      terminateDbWorker();
+    } catch (err) {
+      warn('Failed to close database', err);
+    }
+
+    // Set a flag for the fallback-recovery.js to delete IndexedDB on next page load
+    // (the database may still be blocked by open connections on this page)
+    localStorage.setItem('webmail_pending_idb_cleanup', '1');
+    // Clear ALL localStorage (not just webmail_ prefixed keys)
+    // Note: setItem above will be cleared too, but that's fine — the flag
+    // only needs to survive until the page navigates and fallback-recovery.js reads it.
+    // We re-set it after clear() to ensure it persists.
+    localStorage.clear();
+    localStorage.setItem('webmail_pending_idb_cleanup', '1');
+    sessionStorage.clear();
     accounts.set([]);
     currentAccount.set('');
+
+    // Deactivate demo mode (clears fe_demo_mode key)
+    try {
+      const { deactivateDemoMode } = await import('../utils/demo-mode.js');
+      deactivateDemoMode();
+    } catch (err) {
+      warn('Failed to deactivate demo mode', err);
+    }
 
     // Clear all service worker caches on full logout (static assets only, no API data)
     try {
@@ -1461,6 +1488,14 @@ export const signOut = async () => {
       await clearAllSWCaches();
     } catch (err) {
       warn('Failed to clear SW caches', err);
+    }
+
+    // Clear all IndexedDB databases (Dexie mail cache, etc.)
+    try {
+      const { forceDeleteAllDatabases } = await import('../utils/db-recovery.js');
+      await forceDeleteAllDatabases();
+    } catch (err) {
+      warn('Failed to clear IndexedDB', err);
     }
 
     mailboxStore.state.selectedConversationIds.set([]);

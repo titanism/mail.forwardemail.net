@@ -35,6 +35,13 @@
 
 import { isTauriMobile } from './platform.js';
 import { registerPushToken, unregisterPushToken } from './background-service.js';
+import {
+  isUnifiedPushAvailable,
+  registerUnifiedPush,
+  unregisterUnifiedPush,
+  initUnifiedPushListener,
+  isUnifiedPushRegistered,
+} from './unified-push.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -149,6 +156,11 @@ async function acquirePushToken() {
  * Initialize push notifications.
  * Call once during app bootstrap on mobile platforms.
  *
+ * Strategy:
+ *   1. Try FCM/APNs via Tauri notification plugin (standard path)
+ *   2. If FCM is unavailable (no Google Play Services), fall back to UnifiedPush
+ *   3. UnifiedPush works with any distributor (ntfy, NextPush, etc.)
+ *
  * @param {Object} options
  * @param {string} options.authToken - User's API authentication token
  * @returns {Promise<boolean>} true if push notifications were set up
@@ -162,7 +174,7 @@ export async function initPushNotifications({ authToken } = {}) {
   }
 
   try {
-    // Check if we already have a stored token
+    // Check if we already have a stored token (FCM/APNs)
     const existingToken = getStoredToken();
     if (existingToken) {
       const platform = getMobilePlatform();
@@ -175,22 +187,40 @@ export async function initPushNotifications({ authToken } = {}) {
       }
     }
 
-    // Acquire a new token
+    // Try FCM/APNs first
     const result = await acquirePushToken();
-    if (!result) return false;
+    if (result) {
+      const success = await registerPushToken(result.token, result.platform, authToken);
+      if (success) {
+        storeToken(result.token, result.platform);
+        initialized = true;
+        setupTokenRefreshListener(authToken);
+        return true;
+      }
+    }
 
-    // Register with the server
-    const success = await registerPushToken(result.token, result.platform, authToken);
-    if (success) {
-      storeToken(result.token, result.platform);
+    // FCM unavailable — try UnifiedPush as fallback
+    // This handles devices without Google Play Services (e.g., GrapheneOS, /e/OS)
+    if (await isUnifiedPushAvailable()) {
+      console.info('[push-notifications] FCM unavailable, trying UnifiedPush');
+      const endpoint = await registerUnifiedPush();
+      if (endpoint) {
+        // Set up listener for incoming push messages
+        await initUnifiedPushListener();
+        initialized = true;
+        console.info('[push-notifications] UnifiedPush registered');
+        return true;
+      }
+    }
+
+    // Check if UnifiedPush was previously registered (survives app restart)
+    if (isUnifiedPushRegistered()) {
+      await initUnifiedPushListener();
       initialized = true;
-
-      // Set up token refresh listener
-      setupTokenRefreshListener(authToken);
-
       return true;
     }
 
+    console.warn('[push-notifications] No push provider available');
     return false;
   } catch (err) {
     console.warn('[push-notifications] Initialization failed:', err);
@@ -279,6 +309,11 @@ export async function cleanupPushNotifications(authToken) {
 
   if (authToken) {
     await unregisterPushToken(authToken);
+  }
+
+  // Also clean up UnifiedPush if it was registered
+  if (isUnifiedPushRegistered()) {
+    await unregisterUnifiedPush();
   }
 
   clearStoredToken();

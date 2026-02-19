@@ -9,6 +9,8 @@
   import AppLockSettings from './AppLockSettings.svelte';
   import MailtoSettings from './components/MailtoSettings.svelte';
   import { forceDeleteAllDatabases } from '../utils/db-recovery.js';
+  import { closeDatabase, terminateDbWorker } from '../utils/db-worker-client.js';
+  import { deactivateDemoMode } from '../utils/demo-mode.js';
   import { refreshSyncWorkerPgpKeys } from '../utils/sync-worker-client.js';
   import { initPerfObservers } from '../utils/perf-logger.ts';
   import { mailService, clearPgpKeyCache, invalidatePgpCachedBodies } from '../stores/mailService';
@@ -116,9 +118,9 @@
     applyFont = () => {},
   }: Props = $props();
 
-  const asStore = <T>(value: Readable<T> | T | undefined): Readable<T> =>
+  const asStore = <T,>(value: Readable<T> | T | undefined): Readable<T> =>
     value && typeof (value as Readable<T>).subscribe === 'function'
-      ? value as Readable<T>
+      ? (value as Readable<T>)
       : readable((value ?? 0) as T);
 
   const storageUsedStore = asStore(storageUsed);
@@ -164,10 +166,15 @@
   let alertClearTimer: ReturnType<typeof setTimeout> | undefined;
   let databaseVersion = $state(CURRENT_SCHEMA_VERSION);
   let databaseRecordCount = $state(0);
-  let shortcutsList = $state<{ label: string; key?: string; keys?: string[]; originalKey?: string }[]>([]);
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
+  let shortcutsList = $state<
+    { label: string; key?: string; keys?: string[]; originalKey?: string }[]
+  >([]);
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
 
-  const buildAvailableFolders = (list: { path?: string; name?: string; fullName?: string; fullname?: string }[] = []) => {
+  const buildAvailableFolders = (
+    list: { path?: string; name?: string; fullName?: string; fullname?: string }[] = [],
+  ) => {
     const seen = new Set<string>();
     const mapped: string[] = [];
     (list || []).forEach((folder) => {
@@ -248,10 +255,13 @@
 
   const refreshHybridOverrides = () => {
     const acct = getAccountId();
-    hybridOverrides = hybridSettingIds.reduce((acc, id) => {
-      acc[id] = isSettingOverrideEnabled(id, acct);
-      return acc;
-    }, {} as Record<string, boolean>);
+    hybridOverrides = hybridSettingIds.reduce(
+      (acc, id) => {
+        acc[id] = isSettingOverrideEnabled(id, acct);
+        return acc;
+      },
+      {} as Record<string, boolean>,
+    );
   };
 
   const getSettingStateValue = (id: string) => {
@@ -330,7 +340,13 @@
     needsRebuild: boolean;
   }
 
-  let searchHealth = $state<SearchHealth>({ healthy: true, messagesCount: 0, indexCount: 0, divergence: 0, needsRebuild: false });
+  let searchHealth = $state<SearchHealth>({
+    healthy: true,
+    messagesCount: 0,
+    indexCount: 0,
+    divergence: 0,
+    needsRebuild: false,
+  });
   let checkingHealth = $state(false);
   let rebuildingFromCache = $state(false);
   let lastHealthCheck = $state<Date | null>(null);
@@ -363,7 +379,16 @@
 
   let feedbackModalOpen = $state(false);
 
-  const sectionIds = new Set(['general', 'appearance', 'privacy', 'folders', 'search', 'advanced', 'shortcuts', 'help']);
+  const sectionIds = new Set([
+    'general',
+    'appearance',
+    'privacy',
+    'folders',
+    'search',
+    'advanced',
+    'shortcuts',
+    'help',
+  ]);
 
   const formatStorageValue = (bytes = 0) => {
     if (!bytes) return '0 GB';
@@ -413,7 +438,9 @@
         }
       }),
       foldersStore.subscribe((list: unknown[]) => {
-        availableFolders = buildAvailableFolders(list as { path?: string; name?: string; fullName?: string; fullname?: string }[]);
+        availableFolders = buildAvailableFolders(
+          list as { path?: string; name?: string; fullName?: string; fullname?: string }[],
+        );
       }),
       effectiveTheme.subscribe((v: string) => {
         theme = v || 'system';
@@ -598,7 +625,9 @@
     return color;
   };
 
-  const labelsList = $derived(($settingsLabelsStore || []).filter((label: unknown) => getLabelKey(label as LabelItem)));
+  const labelsList = $derived(
+    ($settingsLabelsStore || []).filter((label: unknown) => getLabelKey(label as LabelItem)),
+  );
 
   const loadLabelsList = async () => {
     labelsLoading = true;
@@ -701,7 +730,10 @@
       const info = await getDatabaseInfo();
       if (info) {
         databaseVersion = info.version ?? CURRENT_SCHEMA_VERSION;
-        const totalRecords = Object.values(info.counts || {}).reduce((sum: number, count) => sum + (count as number), 0);
+        const totalRecords = Object.values(info.counts || {}).reduce(
+          (sum: number, count) => sum + (count as number),
+          0,
+        );
         databaseRecordCount = totalRecords;
       }
     } catch (err) {
@@ -774,13 +806,14 @@
     try {
       await settingsActions.setAttachmentReminder(attachmentReminderEnabled);
       toasts?.show?.(
-        attachmentReminderEnabled
-          ? 'Attachment reminder enabled'
-          : 'Attachment reminder disabled',
-        'success'
+        attachmentReminderEnabled ? 'Attachment reminder enabled' : 'Attachment reminder disabled',
+        'success',
       );
     } catch (err) {
-      toasts?.show?.((err as Error)?.message || 'Failed to save attachment reminder setting', 'error');
+      toasts?.show?.(
+        (err as Error)?.message || 'Failed to save attachment reminder setting',
+        'error',
+      );
     }
   };
 
@@ -791,7 +824,7 @@
         blockRemoteImages
           ? 'Remote images will be blocked for privacy'
           : 'Remote images will load automatically',
-        'success'
+        'success',
       );
     } catch (err) {
       toasts?.show?.((err as Error)?.message || 'Failed to update image blocking setting', 'error');
@@ -805,7 +838,7 @@
         blockTrackingPixels
           ? 'Tracking pixels will be blocked'
           : 'Tracking pixels will load (not recommended)',
-        'success'
+        'success',
       );
     } catch (err) {
       toasts?.show?.((err as Error)?.message || 'Failed to update tracking pixel setting', 'error');
@@ -1072,11 +1105,34 @@
 
     resettingStorage = true;
     try {
+      // Close the Dexie instance inside the worker, then terminate the worker
+      // so no connection holds the IndexedDB open during deletion
+      try {
+        await closeDatabase();
+      } catch {
+        /* ignore */
+      }
+      try {
+        terminateDbWorker();
+      } catch {
+        /* ignore */
+      }
       await unregisterServiceWorker();
       await forceDeleteAllDatabases();
-      Local.clear();
+      // Set a flag for the fallback-recovery.js to delete IndexedDB on next page load
+      // (the database may still be blocked by open connections on this page)
+      localStorage.setItem('webmail_pending_idb_cleanup', '1');
+      // Clear ALL localStorage (not just webmail_ prefixed keys)
+      localStorage.clear();
+      localStorage.setItem('webmail_pending_idb_cleanup', '1');
+      sessionStorage.clear();
+      // Also deactivate demo mode (clears fe_demo_mode key)
+      deactivateDemoMode();
       setSuccess('Service worker reset and local data cleared. Redirecting to login...');
-      toasts?.show?.('Service worker reset and local data cleared. Redirecting to login...', 'success');
+      toasts?.show?.(
+        'Service worker reset and local data cleared. Redirecting to login...',
+        'success',
+      );
       setTimeout(() => {
         navigate?.('/') ?? (window.location.href = '/');
       }, 1000);
@@ -1117,7 +1173,9 @@
   </Alert.Root>
 {/if}
 {#if success}
-  <Alert.Root class="mx-4 mt-4 border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
+  <Alert.Root
+    class="mx-4 mt-4 border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100"
+  >
     <CheckCircle class="h-4 w-4" />
     <Alert.Description>{success}</Alert.Description>
   </Alert.Root>
@@ -1130,7 +1188,9 @@
       {#each sections as sec}
         <button
           type="button"
-          class="px-3 py-2 text-left text-sm font-medium transition-colors {section === sec.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+          class="px-3 py-2 text-left text-sm font-medium transition-colors {section === sec.id
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
           onclick={() => {
             section = sec.id;
             history.replaceState(null, '', `#${sec.id}`);
@@ -1156,7 +1216,7 @@
           if (section === 'advanced') loadCacheStatistics();
         }}
       >
-        {#each sections.filter(s => s.id !== 'shortcuts') as sec}
+        {#each sections.filter((s) => s.id !== 'shortcuts') as sec}
           <option value={sec.id}>{sec.label}</option>
         {/each}
       </select>
@@ -1186,20 +1246,29 @@
           </Card.Header>
           <Card.Content class="space-y-3">
             {#each $accounts as account}
-              <div class="flex items-center justify-between border border-border p-3 {account.email === $currentAccount ? 'bg-primary/5' : ''}">
+              <div
+                class="flex items-center justify-between border border-border p-3 {account.email ===
+                $currentAccount
+                  ? 'bg-primary/5'
+                  : ''}"
+              >
                 <div class="flex items-center gap-3">
                   <User class="h-5 w-5 text-muted-foreground" />
                   <div>
                     <div class="font-medium">{account.email}</div>
                     <div class="text-xs text-muted-foreground">
-                      {account.email === $currentAccount ? 'Active account' : `Added ${new Date(account.addedAt).toLocaleDateString()}`}
+                      {account.email === $currentAccount
+                        ? 'Active account'
+                        : `Added ${new Date(account.addedAt).toLocaleDateString()}`}
                     </div>
                   </div>
                 </div>
                 {#if account.email === $currentAccount}
                   <Button variant="destructive" size="sm" onclick={signOut}>Sign out</Button>
                 {:else}
-                  <Button variant="ghost" size="sm" onclick={() => switchAccount(account)}>Switch to</Button>
+                  <Button variant="ghost" size="sm" onclick={() => switchAccount(account)}
+                    >Switch to</Button
+                  >
                 {/if}
               </div>
             {/each}
@@ -1222,13 +1291,20 @@
                   <span>{storagePercentValue()}%</span>
                 </div>
                 <div class="h-2 w-full overflow-hidden bg-secondary">
-                  <div class="h-full bg-primary transition-all" style="width: {storagePercentValue()}%"></div>
+                  <div
+                    class="h-full bg-primary transition-all"
+                    style="width: {storagePercentValue()}%"
+                  ></div>
                 </div>
                 <div class="text-xs text-muted-foreground">
                   {formatStorageValue(storageUsedValue)} of {formatStorageValue(storageTotalValue)}
                 </div>
               </div>
-              <Button variant="outline" class="mt-4" onclick={() => window.open('https://forwardemail.net/my-account/billing', '_blank')}>
+              <Button
+                variant="outline"
+                class="mt-4"
+                onclick={() => window.open('https://forwardemail.net/my-account/billing', '_blank')}
+              >
                 Increase storage
               </Button>
             </Card.Content>
@@ -1244,15 +1320,36 @@
           <Card.Content class="space-y-3">
             <div class="flex flex-wrap gap-4">
               <label class="flex items-center gap-2">
-                <input type="radio" name="theme" value="system" bind:group={theme} onchange={saveTheme} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="theme"
+                  value="system"
+                  bind:group={theme}
+                  onchange={saveTheme}
+                  class="accent-primary"
+                />
                 <span>Auto (follow system)</span>
               </label>
               <label class="flex items-center gap-2">
-                <input type="radio" name="theme" value="light" bind:group={theme} onchange={saveTheme} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="theme"
+                  value="light"
+                  bind:group={theme}
+                  onchange={saveTheme}
+                  class="accent-primary"
+                />
                 <span>Light</span>
               </label>
               <label class="flex items-center gap-2">
-                <input type="radio" name="theme" value="dark" bind:group={theme} onchange={saveTheme} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="theme"
+                  value="dark"
+                  bind:group={theme}
+                  onchange={saveTheme}
+                  class="accent-primary"
+                />
                 <span>Dark</span>
               </label>
             </div>
@@ -1266,16 +1363,31 @@
           <Card.Content class="space-y-3">
             <div class="flex flex-col gap-2">
               <label class="flex items-center gap-2">
-                <input type="radio" name="layout" value="full" bind:group={layoutModeChoice} onchange={saveLayoutMode} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="layout"
+                  value="full"
+                  bind:group={layoutModeChoice}
+                  onchange={saveLayoutMode}
+                  class="accent-primary"
+                />
                 <span>Full Screen (Recommended)</span>
               </label>
               <label class="flex items-center gap-2">
-                <input type="radio" name="layout" value="classic" bind:group={layoutModeChoice} onchange={saveLayoutMode} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="layout"
+                  value="classic"
+                  bind:group={layoutModeChoice}
+                  onchange={saveLayoutMode}
+                  class="accent-primary"
+                />
                 <span>Classic View (vertical split)</span>
               </label>
             </div>
             <p class="text-sm text-muted-foreground">
-              Full Screen: compact layout with full-screen reader; Classic: side-by-side message list and reader.
+              Full Screen: compact layout with full-screen reader; Classic: side-by-side message
+              list and reader.
             </p>
           </Card.Content>
         </Card.Root>
@@ -1286,14 +1398,20 @@
           </Card.Header>
           <Card.Content class="space-y-4">
             <label class="flex items-center gap-3">
-              <Checkbox bind:checked={composePlainDefault} onCheckedChange={saveComposePlainDefault} />
+              <Checkbox
+                bind:checked={composePlainDefault}
+                onCheckedChange={saveComposePlainDefault}
+              />
               <span>Use plain text by default</span>
             </label>
             <p class="text-sm text-muted-foreground">
               We'll remember this for new messages. You can still switch formats while composing.
             </p>
             <label class="flex items-center gap-3">
-              <Checkbox bind:checked={attachmentReminderEnabled} onCheckedChange={saveAttachmentReminder} />
+              <Checkbox
+                bind:checked={attachmentReminderEnabled}
+                onCheckedChange={saveAttachmentReminder}
+              />
               <span>Remind me about attachments</span>
             </label>
             <p class="text-sm text-muted-foreground">
@@ -1309,15 +1427,36 @@
           <Card.Content class="space-y-3">
             <div class="flex flex-wrap gap-4">
               <label class="flex items-center gap-2">
-                <input type="radio" name="perpage" value={20} bind:group={messagesPerPage} onchange={saveMessagesPerPage} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="perpage"
+                  value={20}
+                  bind:group={messagesPerPage}
+                  onchange={saveMessagesPerPage}
+                  class="accent-primary"
+                />
                 <span>20 messages</span>
               </label>
               <label class="flex items-center gap-2">
-                <input type="radio" name="perpage" value={50} bind:group={messagesPerPage} onchange={saveMessagesPerPage} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="perpage"
+                  value={50}
+                  bind:group={messagesPerPage}
+                  onchange={saveMessagesPerPage}
+                  class="accent-primary"
+                />
                 <span>50 messages</span>
               </label>
               <label class="flex items-center gap-2">
-                <input type="radio" name="perpage" value={100} bind:group={messagesPerPage} onchange={saveMessagesPerPage} class="accent-primary" />
+                <input
+                  type="radio"
+                  name="perpage"
+                  value={100}
+                  bind:group={messagesPerPage}
+                  onchange={saveMessagesPerPage}
+                  class="accent-primary"
+                />
                 <span>100 messages</span>
               </label>
             </div>
@@ -1330,7 +1469,9 @@
         <Card.Root>
           <Card.Header>
             <Card.Title>Font</Card.Title>
-            <Card.Description>Choose a custom font for better readability. System default is fastest.</Card.Description>
+            <Card.Description
+              >Choose a custom font for better readability. System default is fastest.</Card.Description
+            >
           </Card.Header>
           <Card.Content class="space-y-4">
             <div class="space-y-2">
@@ -1355,7 +1496,9 @@
                 The quick brown fox jumps over the lazy dog.
                 <strong>Bold text</strong> and regular text for email reading.
                 <br />
-                <span class="text-sm text-muted-foreground">Numbers: 0123456789 | Symbols: @#$%&*</span>
+                <span class="text-sm text-muted-foreground"
+                  >Numbers: 0123456789 | Symbols: @#$%&*</span
+                >
               </div>
             {/if}
           </Card.Content>
@@ -1387,10 +1530,20 @@
                 <div class="flex items-center justify-between border border-border p-2">
                   <span class="font-medium">{key.name || 'Key'}</span>
                   <div class="flex gap-1">
-                    <Button variant="ghost" size="icon" onclick={() => editKey(key)} aria-label="Edit">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onclick={() => editKey(key)}
+                      aria-label="Edit"
+                    >
                       <Pencil class="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onclick={() => removeKey(key)} aria-label="Remove">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onclick={() => removeKey(key)}
+                      aria-label="Remove"
+                    >
                       <X class="h-4 w-4" />
                     </Button>
                   </div>
@@ -1399,8 +1552,16 @@
             </div>
             {#if keyFormVisible}
               <div class="space-y-3 border border-border p-4">
-                <Input type="text" placeholder="Key name (e.g., Personal)" bind:value={editingKeyName} />
-                <Textarea rows={6} placeholder="PGP private key (ASCII armor)" bind:value={editingKeyValue} />
+                <Input
+                  type="text"
+                  placeholder="Key name (e.g., Personal)"
+                  bind:value={editingKeyName}
+                />
+                <Textarea
+                  rows={6}
+                  placeholder="PGP private key (ASCII armor)"
+                  bind:value={editingKeyValue}
+                />
                 <div class="flex gap-2">
                   <Button variant="ghost" onclick={cancelKeyForm}>Cancel</Button>
                   <Button onclick={saveKey}>Save key</Button>
@@ -1421,14 +1582,21 @@
           </Card.Header>
           <Card.Content class="space-y-4">
             <label class="flex items-center gap-3">
-              <Checkbox bind:checked={blockRemoteImages} onCheckedChange={toggleBlockRemoteImages} />
+              <Checkbox
+                bind:checked={blockRemoteImages}
+                onCheckedChange={toggleBlockRemoteImages}
+              />
               <span>Block all external images by default</span>
             </label>
             <p class="text-sm text-muted-foreground">
-              Blocks all external images from loading. You can still load images for individual emails.
+              Blocks all external images from loading. You can still load images for individual
+              emails.
             </p>
             <label class="flex items-center gap-3">
-              <Checkbox bind:checked={blockTrackingPixels} onCheckedChange={toggleBlockTrackingPixels} />
+              <Checkbox
+                bind:checked={blockTrackingPixels}
+                onCheckedChange={toggleBlockTrackingPixels}
+              />
               <span>Block tracking pixels</span>
             </label>
             <p class="text-sm text-muted-foreground">
@@ -1442,12 +1610,19 @@
         <Card.Root>
           <Card.Header>
             <Card.Title>Special Folders</Card.Title>
-            <Card.Description>Configure which folders to use for archiving, sending, and drafting messages.</Card.Description>
+            <Card.Description
+              >Configure which folders to use for archiving, sending, and drafting messages.</Card.Description
+            >
           </Card.Header>
           <Card.Content class="space-y-4">
             <div class="space-y-2">
               <Label for="archive-folder">Archive folder</Label>
-              <select id="archive-folder" class="w-full border border-input bg-background px-3 py-2 text-sm" bind:value={archiveFolder} onchange={saveArchiveFolder}>
+              <select
+                id="archive-folder"
+                class="w-full border border-input bg-background px-3 py-2 text-sm"
+                bind:value={archiveFolder}
+                onchange={saveArchiveFolder}
+              >
                 <option value="">Auto-detect (Archive)</option>
                 {#each availableFolders as folder}
                   <option value={folder}>{folder}</option>
@@ -1456,7 +1631,12 @@
             </div>
             <div class="space-y-2">
               <Label for="sent-folder">Sent folder</Label>
-              <select id="sent-folder" class="w-full border border-input bg-background px-3 py-2 text-sm" bind:value={sentFolder} onchange={saveSentFolder}>
+              <select
+                id="sent-folder"
+                class="w-full border border-input bg-background px-3 py-2 text-sm"
+                bind:value={sentFolder}
+                onchange={saveSentFolder}
+              >
                 <option value="">Auto-detect (Sent)</option>
                 {#each availableFolders as folder}
                   <option value={folder}>{folder}</option>
@@ -1465,7 +1645,12 @@
             </div>
             <div class="space-y-2">
               <Label for="drafts-folder">Drafts folder</Label>
-              <select id="drafts-folder" class="w-full border border-input bg-background px-3 py-2 text-sm" bind:value={draftsFolder} onchange={saveDraftsFolder}>
+              <select
+                id="drafts-folder"
+                class="w-full border border-input bg-background px-3 py-2 text-sm"
+                bind:value={draftsFolder}
+                onchange={saveDraftsFolder}
+              >
                 <option value="">Auto-detect (Drafts)</option>
                 {#each availableFolders as folder}
                   <option value={folder}>{folder}</option>
@@ -1504,10 +1689,21 @@
                       </div>
                     </div>
                     <div class="flex gap-1">
-                      <Button variant="ghost" size="icon" onclick={() => openEditLabelModal(label)} aria-label="Edit">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onclick={() => openEditLabelModal(label)}
+                        aria-label="Edit"
+                      >
                         <Pencil class="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onclick={() => deleteLabel(label)} disabled={labelsDeleting === getLabelKey(label)} aria-label="Remove">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onclick={() => deleteLabel(label)}
+                        disabled={labelsDeleting === getLabelKey(label)}
+                        aria-label="Remove"
+                      >
                         <X class="h-4 w-4" />
                       </Button>
                     </div>
@@ -1525,7 +1721,9 @@
         <Card.Root>
           <Card.Header>
             <Card.Title>Search Indexing</Card.Title>
-            <Card.Description>Control how your mailbox content is indexed for search.</Card.Description>
+            <Card.Description
+              >Control how your mailbox content is indexed for search.</Card.Description
+            >
           </Card.Header>
           <Card.Content class="space-y-4">
             <label class="flex items-center gap-3">
@@ -1554,8 +1752,16 @@
             <Card.Description>Monitor the health of your search index.</Card.Description>
           </Card.Header>
           <Card.Content class="space-y-4">
-            <div class="p-3 {searchHealth.healthy ? 'bg-green-50 dark:bg-green-950' : 'bg-yellow-50 dark:bg-yellow-950'}">
-              <div class="flex items-center gap-2 font-semibold {searchHealth.healthy ? 'text-green-600' : 'text-yellow-600'}">
+            <div
+              class="p-3 {searchHealth.healthy
+                ? 'bg-green-50 dark:bg-green-950'
+                : 'bg-yellow-50 dark:bg-yellow-950'}"
+            >
+              <div
+                class="flex items-center gap-2 font-semibold {searchHealth.healthy
+                  ? 'text-green-600'
+                  : 'text-yellow-600'}"
+              >
                 {#if searchHealth.healthy}
                   <CheckCircle class="h-4 w-4" />
                   Healthy
@@ -1580,7 +1786,11 @@
                 {checkingHealth ? 'Checking...' : 'Check health'}
               </Button>
               {#if searchHealth.needsRebuild || searchHealth.divergence > 0}
-                <Button variant="outline" onclick={runRebuildFromCache} disabled={rebuildingFromCache}>
+                <Button
+                  variant="outline"
+                  onclick={runRebuildFromCache}
+                  disabled={rebuildingFromCache}
+                >
                   {rebuildingFromCache ? 'Rebuilding...' : 'Rebuild from cache'}
                 </Button>
               {/if}
@@ -1597,17 +1807,31 @@
             <div class="space-y-3">
               <div class="space-y-2">
                 <Label for="search-name">Name</Label>
-                <Input id="search-name" placeholder="e.g. Invoices with attachments" bind:value={newSavedSearchName} />
+                <Input
+                  id="search-name"
+                  placeholder="e.g. Invoices with attachments"
+                  bind:value={newSavedSearchName}
+                />
               </div>
               <div class="space-y-2">
                 <Label for="search-query">Query</Label>
-                <Input id="search-query" placeholder="e.g. subject:invoice has:attachment" bind:value={newSavedSearchQuery} />
+                <Input
+                  id="search-query"
+                  placeholder="e.g. subject:invoice has:attachment"
+                  bind:value={newSavedSearchQuery}
+                />
               </div>
               <div class="flex gap-2">
                 <Button variant="outline" onclick={saveSavedSearch} disabled={savingSearch}>
                   {savingSearch ? 'Saving...' : 'Save search'}
                 </Button>
-                <Button variant="ghost" onclick={() => { newSavedSearchName = ''; newSavedSearchQuery = ''; }}>Clear</Button>
+                <Button
+                  variant="ghost"
+                  onclick={() => {
+                    newSavedSearchName = '';
+                    newSavedSearchQuery = '';
+                  }}>Clear</Button
+                >
               </div>
             </div>
             {#if savedSearches && savedSearches.length}
@@ -1618,7 +1842,12 @@
                       <div class="font-medium">{saved.name}</div>
                       <div class="text-xs text-muted-foreground">{saved.query}</div>
                     </div>
-                    <Button variant="ghost" size="sm" onclick={() => deleteSavedSearch(saved.name)} disabled={deletingSearch === saved.name}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onclick={() => deleteSavedSearch(saved.name)}
+                      disabled={deletingSearch === saved.name}
+                    >
                       {deletingSearch === saved.name ? '...' : 'Delete'}
                     </Button>
                   </div>
@@ -1678,16 +1907,26 @@
               <p class="text-sm text-muted-foreground">Loading statistics...</p>
             {:else if storageInfo}
               <div class="space-y-2 text-sm">
-                <div><strong>Total Usage:</strong> {storageInfo.usageFormatted || '—'} / {storageInfo.quotaFormatted || '—'} ({(storageInfo.percentage as number)?.toFixed(1) || 0}%)</div>
+                <div>
+                  <strong>Total Usage:</strong>
+                  {storageInfo.usageFormatted || '—'} / {storageInfo.quotaFormatted || '—'} ({(
+                    storageInfo.percentage as number
+                  )?.toFixed(1) || 0}%)
+                </div>
                 <div><strong>Available:</strong> {storageInfo.availableFormatted || '—'}</div>
               </div>
               <div class="h-2 w-full overflow-hidden bg-secondary">
-                <div class="h-full bg-primary transition-all" style="width: {(storageInfo.percentage as number) || 0}%"></div>
+                <div
+                  class="h-full bg-primary transition-all"
+                  style="width: {(storageInfo.percentage as number) || 0}%"
+                ></div>
               </div>
               {#if (storageInfo.percentage as number) > 90}
                 <Alert.Root variant="destructive">
                   <AlertTriangle class="h-4 w-4" />
-                  <Alert.Description>Storage almost full! Consider clearing cache.</Alert.Description>
+                  <Alert.Description
+                    >Storage almost full! Consider clearing cache.</Alert.Description
+                  >
                 </Alert.Root>
               {/if}
             {:else}
@@ -1718,7 +1957,9 @@
         <Card.Root class="border-destructive">
           <Card.Header>
             <Card.Title class="text-destructive">Danger Zone</Card.Title>
-            <Card.Description>Use these options if you're experiencing issues with the app.</Card.Description>
+            <Card.Description
+              >Use these options if you're experiencing issues with the app.</Card.Description
+            >
           </Card.Header>
           <Card.Content class="space-y-4">
             <div>
@@ -1745,16 +1986,22 @@
         <Card.Root class="hidden md:block">
           <Card.Header>
             <Card.Title>Keyboard shortcuts</Card.Title>
-            <Card.Description>Customize or review the shortcuts available throughout the app.</Card.Description>
+            <Card.Description
+              >Customize or review the shortcuts available throughout the app.</Card.Description
+            >
           </Card.Header>
           <Card.Content>
             <div class="max-h-96 overflow-y-auto border border-border">
-              <div class="sticky top-0 grid grid-cols-[1fr_auto] gap-4 border-b border-border bg-muted p-3 font-semibold">
+              <div
+                class="sticky top-0 grid grid-cols-[1fr_auto] gap-4 border-b border-border bg-muted p-3 font-semibold"
+              >
                 <span>Action</span>
                 <span>Shortcut</span>
               </div>
               {#each shortcutsList as shortcut}
-                <div class="grid grid-cols-[1fr_auto] gap-4 border-b border-border p-3 last:border-b-0">
+                <div
+                  class="grid grid-cols-[1fr_auto] gap-4 border-b border-border p-3 last:border-b-0"
+                >
                   <span>{shortcut.label}</span>
                   <code class="bg-muted px-2 py-1 text-sm">
                     {formatKey(shortcut.key || shortcut.keys || shortcut.originalKey) || '—'}
@@ -1773,7 +2020,7 @@
             <Card.Description>Report bugs, request features, or ask questions.</Card.Description>
           </Card.Header>
           <Card.Content>
-            <Button onclick={() => feedbackModalOpen = true}>
+            <Button onclick={() => (feedbackModalOpen = true)}>
               <MessageSquare class="mr-2 h-4 w-4" />
               Send Feedback
             </Button>
@@ -1783,14 +2030,44 @@
         <Card.Root>
           <Card.Header>
             <Card.Title>Documentation & Resources</Card.Title>
-            <Card.Description>Learn more about features and how to use the webmail client.</Card.Description>
+            <Card.Description
+              >Learn more about features and how to use the webmail client.</Card.Description
+            >
           </Card.Header>
           <Card.Content>
             <ul class="list-inside list-disc space-y-1 text-sm">
-              <li><a href="https://forwardemail.net/faq" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">FAQ</a></li>
-              <li><a href="https://forwardemail.net/guides" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">Guides</a></li>
-              <li><a href="https://forwardemail.net/help" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">Help & Support</a></li>
-              <li><a href="https://forwardemail.net/email-api" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">Email API Documentation</a></li>
+              <li>
+                <a
+                  href="https://forwardemail.net/faq"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">FAQ</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://forwardemail.net/guides"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">Guides</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://forwardemail.net/help"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">Help & Support</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://forwardemail.net/email-api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">Email API Documentation</a
+                >
+              </li>
             </ul>
           </Card.Content>
         </Card.Root>
@@ -1802,9 +2079,30 @@
           </Card.Header>
           <Card.Content>
             <ul class="list-inside list-disc space-y-1 text-sm">
-              <li><a href="https://github.com/forwardemail" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">GitHub</a></li>
-              <li><a href="https://matrix.to/#/#forward-email:matrix.org" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">Matrix Chat</a></li>
-              <li><a href="https://x.com/fwdemail" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:text-sky-400 hover:underline">X (Twitter)</a></li>
+              <li>
+                <a
+                  href="https://github.com/forwardemail"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">GitHub</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://matrix.to/#/#forward-email:matrix.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">Matrix Chat</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://x.com/fwdemail"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sky-500 hover:text-sky-400 hover:underline">X (Twitter)</a
+                >
+              </li>
             </ul>
           </Card.Content>
         </Card.Root>
@@ -1853,5 +2151,5 @@
 </Dialog.Root>
 
 {#if feedbackModalOpen}
-  <FeedbackModal onClose={() => feedbackModalOpen = false} />
+  <FeedbackModal onClose={() => (feedbackModalOpen = false)} />
 {/if}
